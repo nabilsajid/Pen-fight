@@ -948,7 +948,7 @@ class PenAI {
     }
 
     powerPercent = Math.min(95, Math.max(15, powerPercent));
-    const impulseMag = (powerPercent / 100) * (aiPen.mass * 1750 + 3500);
+    const impulseMag = (powerPercent / 100) * (aiPen.mass * 1350);
     const impulse = Vector2D.mult(aimVector, impulseMag);
 
     return { strikePoint: strikeWorldPoint, impulse, powerPercent };
@@ -1196,7 +1196,7 @@ class GameUI {
         const finalPower = Math.min(100, Math.max(5, this.calculatedPower * powerJitter));
 
         const aimDir = Vector2D.fromAngle(finalAngle);
-        const impulseMag = finalPower * 28 * (this.selectedPen.mass / 20);
+        const impulseMag = (finalPower / 100) * (this.selectedPen.mass * 1350);
         const impulse = Vector2D.mult(aimDir, impulseMag);
 
         const strikePoint = this.selectedPen.getPointAlongAxis(this.strikeOffsetT);
