@@ -1203,6 +1203,7 @@ class PenFightGame {
     this.currentTurn = 'player1';
     this.lastShotOwner = 'player1';
     this.matchStartingPlayer = null;
+    this.matchStartingTeam = 1;
     this.matchFormat = 3;
     this.targetScore = 2;
     this.currentRound = 1;
@@ -1355,9 +1356,9 @@ class PenFightGame {
       startTime: Date.now()
     };
 
-    // Shuffled starting player: randomly choose who gets opening strike for the match
-    const opponentKey = (mode === 'vs_ai') ? 'ai' : 'player2';
-    this.matchStartingPlayer = Math.random() < 0.5 ? 'player1' : opponentKey;
+    // Randomize starting team for the match (1 = Player 1, 2 = AI/Player 2)
+    this.matchStartingTeam = Math.random() < 0.5 ? 1 : 2;
+    this.matchStartingPlayer = this.matchStartingTeam === 1 ? 'player1' : ((mode === 'vs_ai') ? 'ai' : 'player2');
 
     this.showScreen('gameplayScreen');
     this.setupCanvasSize();
@@ -1372,6 +1373,7 @@ class PenFightGame {
     this.physics.roundTurnCount = 0;
 
     // Strict round opener alternation:
+    if (!this.matchStartingTeam) this.matchStartingTeam = 1;
     this.currentTurnTeam = (this.currentRound % 2 === 1) ? this.matchStartingTeam : (this.matchStartingTeam === 1 ? 2 : 1);
     this.activeSlotT1 = 0;
     this.activeSlotT2 = 0;
@@ -1766,63 +1768,68 @@ class PenFightGame {
   }
 
   initDOM() {
-    document.getElementById('menuPlayBtn').addEventListener('click', () => {
+    const bindBtn = (id, fn) => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('click', fn);
+    };
+
+    bindBtn('menuPlayBtn', () => {
       this.sound.playClick();
       this.startMatch('vs_ai');
     });
-    document.getElementById('menuPvpBtn').addEventListener('click', () => {
+    bindBtn('menuPvpBtn', () => {
       this.sound.playClick();
       this.startMatch('pvp');
     });
-    document.getElementById('menuPracticeBtn').addEventListener('click', () => {
+    bindBtn('menuPracticeBtn', () => {
       this.sound.playClick();
       this.startMatch('practice');
     });
-    document.getElementById('menuPenSelectBtn').addEventListener('click', () => {
+    bindBtn('menuPenSelectBtn', () => {
       this.sound.playClick();
       this.openPenSelectScreen();
     });
-    document.getElementById('menuArenaBtn').addEventListener('click', () => {
+    bindBtn('menuArenaBtn', () => {
       this.sound.playClick();
       this.openArenaSelectScreen();
     });
-    document.getElementById('menuTutorialBtn').addEventListener('click', () => {
+    bindBtn('menuTutorialBtn', () => {
       this.sound.playClick();
       const modal = document.getElementById('tutorialModal');
       modal.classList.remove('hidden');
       modal.style.setProperty('display', 'flex', 'important');
     });
-    document.getElementById('menuSettingsBtn').addEventListener('click', () => {
+    bindBtn('menuSettingsBtn', () => {
       this.sound.playClick();
       const modal = document.getElementById('settingsModal');
       modal.classList.remove('hidden');
       modal.style.setProperty('display', 'flex', 'important');
     });
-    document.getElementById('menuDebugToggleBtn').addEventListener('click', () => {
+    bindBtn('menuDebugToggleBtn', () => {
       this.toggleDebugHud();
     });
 
     
 
-    document.getElementById('backFromPenSelectBtn').addEventListener('click', () => {
+    bindBtn('backFromPenSelectBtn', () => {
       this.sound.playClick();
       this.showScreen('mainMenuScreen');
     });
-    document.getElementById('backFromArenaBtn').addEventListener('click', () => {
+    bindBtn('backFromArenaBtn', () => {
       this.sound.playClick();
       this.showScreen('mainMenuScreen');
     });
 
-    document.getElementById('gameplayMenuBtn').addEventListener('click', () => {
+    bindBtn('gameplayMenuBtn', () => {
       this.sound.playClick();
       this.showScreen('mainMenuScreen');
       this.state = 'MENU';
     });
-    document.getElementById('quickRestartBtn').addEventListener('click', () => {
+    bindBtn('quickRestartBtn', () => {
       this.sound.playClick();
       this.initRound();
     });
-    document.getElementById('quickSoundBtn').addEventListener('click', () => {
+    bindBtn('quickSoundBtn', () => {
       const isEnabled = this.sound.toggle();
       document.getElementById('quickSoundBtn').textContent = isEnabled ? 'Sound: ON' : 'Sound: OFF';
     });
@@ -1835,14 +1842,14 @@ class PenFightGame {
       });
     });
 
-    document.getElementById('closeTutorialBtn').addEventListener('click', () => this.hideAllModals());
-    document.getElementById('gotItTutorialBtn').addEventListener('click', () => this.hideAllModals());
-    document.getElementById('closeSettingsBtn').addEventListener('click', () => this.hideAllModals());
-    document.getElementById('saveSettingsBtn').addEventListener('click', () => {
+    bindBtn('closeTutorialBtn', () => this.hideAllModals());
+    bindBtn('gotItTutorialBtn', () => this.hideAllModals());
+    bindBtn('closeSettingsBtn', () => this.hideAllModals());
+    bindBtn('saveSettingsBtn', () => {
       this.saveSettings();
       this.hideAllModals();
     });
-    document.getElementById('nextRoundBtn').addEventListener('click', () => {
+    bindBtn('nextRoundBtn', () => {
       this.sound.playClick();
       this.nextRound();
     });
@@ -1864,15 +1871,15 @@ class PenFightGame {
       });
     }
 
-    document.getElementById('victoryRematchBtn').addEventListener('click', () => {
+    bindBtn('victoryRematchBtn', () => {
       this.sound.playClick();
       this.startMatch(this.mode);
     });
-    document.getElementById('victoryChangePenBtn').addEventListener('click', () => {
+    bindBtn('victoryChangePenBtn', () => {
       this.sound.playClick();
       this.openPenSelectScreen();
     });
-    document.getElementById('victoryMenuBtn').addEventListener('click', () => {
+    bindBtn('victoryMenuBtn', () => {
       this.sound.playClick();
       this.showScreen('mainMenuScreen');
       this.state = 'MENU';
