@@ -1518,3 +1518,44 @@ html, body {
   border-color: rgba(255, 255, 255, 0.1);
   transform: scale(0.65);
 }
+
+/* ==========================================================================
+   ENHANCED UI & ANIMATIONS ENGINE
+   ========================================================================== */
+@keyframes cyanPulse {
+  0% { box-shadow: 0 0 12px rgba(0, 229, 255, 0.4); }
+  50% { box-shadow: 0 0 24px rgba(0, 229, 255, 0.8), 0 0 36px rgba(0, 229, 255, 0.3); }
+  100% { box-shadow: 0 0 12px rgba(0, 229, 255, 0.4); }
+}
+
+@keyframes redPulse {
+  0% { box-shadow: 0 0 12px rgba(255, 61, 0, 0.4); }
+  50% { box-shadow: 0 0 24px rgba(255, 61, 0, 0.8), 0 0 36px rgba(255, 61, 0, 0.3); }
+  100% { box-shadow: 0 0 12px rgba(255, 61, 0, 0.4); }
+}
+
+@keyframes cardFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+@keyframes bannerSlideDown {
+  0% { transform: translateY(-20px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+.primary-btn, .primary-modal-btn {
+  animation: cyanPulse 2.8s infinite ease-in-out;
+}
+
+.pen-card.equipped-p1 {
+  animation: cardFloat 3.5s infinite ease-in-out;
+}
+
+.turn-banner {
+  animation: bannerSlideDown 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.pen-dot.active {
+  animation: cyanPulse 2s infinite ease-in-out;
+}

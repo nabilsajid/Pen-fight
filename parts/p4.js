@@ -648,12 +648,15 @@ class GameUI {
 
     ctx.save();
 
+    // 1. Strike Point Targeting Reticle & Glow
     ctx.beginPath();
     ctx.arc(strikePoint.x, strikePoint.y, 14 * (0.8 + powerRatio * 0.4), 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(0, 229, 255, ' + (0.2 + powerRatio * 0.35) + ')';
+    ctx.fillStyle = 'rgba(0, 229, 255, ' + (0.25 + powerRatio * 0.35) + ')';
     ctx.fill();
     ctx.lineWidth = 2;
     ctx.strokeStyle = '#00e5ff';
+    ctx.shadowColor = '#00e5ff';
+    ctx.shadowBlur = 12;
     ctx.stroke();
 
     ctx.beginPath();
@@ -661,76 +664,51 @@ class GameUI {
     ctx.fillStyle = '#ffffff';
     ctx.fill();
 
-    const lineLen = 120 + powerRatio * 280;
+    // 2. Animated Flowing Laser Trajectory Line
+    const lineLen = 130 + powerRatio * 290;
     const endPoint = Vector2D.add(strikePoint, Vector2D.mult(aimDir, lineLen));
 
     ctx.beginPath();
     ctx.setLineDash([8, 6]);
+    ctx.lineDashOffset = -(Date.now() / 25) % 14; // Smooth continuous forward flow animation
     ctx.moveTo(strikePoint.x, strikePoint.y);
     ctx.lineTo(endPoint.x, endPoint.y);
-    ctx.strokeStyle = 'rgba(0, 229, 255, ' + (0.75 + powerRatio * 0.25) + ')';
-    ctx.lineWidth = 2.5 + powerRatio * 2;
+    ctx.strokeStyle = 'rgba(0, 229, 255, ' + (0.8 + powerRatio * 0.2) + ')';
+    ctx.lineWidth = 2.5 + powerRatio * 2.5;
     ctx.stroke();
     ctx.setLineDash([]);
 
+    // 3. Trajectory End Arrow Head
     ctx.beginPath();
-    ctx.arc(endPoint.x, endPoint.y, 6 + powerRatio * 4, 0, Math.PI * 2);
+    const arrowHeadLen = 14 + powerRatio * 8;
+    const arrowAngle1 = this.aimAngle + Math.PI - 0.45;
+    const arrowAngle2 = this.aimAngle + Math.PI + 0.45;
+    ctx.moveTo(endPoint.x, endPoint.y);
+    ctx.lineTo(endPoint.x + Math.cos(arrowAngle1) * arrowHeadLen, endPoint.y + Math.sin(arrowAngle1) * arrowHeadLen);
+    ctx.moveTo(endPoint.x, endPoint.y);
+    ctx.lineTo(endPoint.x + Math.cos(arrowAngle2) * arrowHeadLen, endPoint.y + Math.sin(arrowAngle2) * arrowHeadLen);
     ctx.strokeStyle = '#00e5ff';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 3;
     ctx.stroke();
 
-    const pullDist = (this.calculatedPower / 100) * this.maxPullDistance;
-    const pullEnd = Vector2D.sub(strikePoint, Vector2D.mult(aimDir, 12 + pullDist));
-    ctx.beginPath();
-    ctx.setLineDash([4, 4]);
-    ctx.moveTo(strikePoint.x, strikePoint.y);
-    ctx.lineTo(pullEnd.x, pullEnd.y);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    // 4. Power Meter Tag along Trajectory
+    const midPoint = Vector2D.add(strikePoint, Vector2D.mult(aimDir, lineLen * 0.5));
+    ctx.save();
+    ctx.translate(midPoint.x, midPoint.y);
+    ctx.rotate(this.aimAngle);
+    ctx.fillStyle = 'rgba(10, 15, 25, 0.85)';
+    ctx.strokeStyle = powerRatio > 0.8 ? '#ff3d00' : '#00e5ff';
     ctx.lineWidth = 1.5;
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    ctx.beginPath();
-    ctx.arc(pullEnd.x, pullEnd.y, 5 + powerRatio * 4, 0, Math.PI * 2);
-    ctx.fillStyle = powerRatio > 0.8 ? '#ff1744' : powerRatio > 0.4 ? '#ffea00' : '#00e5ff';
-    ctx.shadowColor = ctx.fillStyle;
-    ctx.shadowBlur = 10;
+    drawRoundedRect(ctx, -32, -22, 64, 18, 5);
     ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(Math.round(this.calculatedPower) + '%', 0, -9);
+    ctx.restore();
 
     ctx.restore();
-  }
-
-  render(desk, pens, arenaCfg, options = {}) {
-    const { width, height } = this.canvas;
-    this.ctx.clearRect(0, 0, width, height);
-
-    this.ctx.save();
-    if (this.shakeIntensity > 0) {
-      const sx = (Math.random() - 0.5) * this.shakeIntensity * 2;
-      const sy = (Math.random() - 0.5) * this.shakeIntensity * 2;
-      this.ctx.translate(sx, sy);
-    }
-
-    try {
-      this.drawDesk(desk, arenaCfg);
-
-      for (const pen of pens) {
-        const isCurrentActive = this.game.getCurrentActivePen() === pen;
-        pen.draw(this.ctx, {
-          showCom: isCurrentActive || options.showCom,
-          isAiming: isCurrentActive && this.game.state === 'AIMING'
-        });
-      }
-
-      if (this.game.state === 'AIMING') {
-        this.drawAimingGuide();
-      }
-
-      this.drawParticles();
-    } catch (err) {
-      console.error('Render error:', err);
-    }
-
-    this.ctx.restore();
   }
 }
