@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>PEN FIGHT - 2.5D Tabletop Physics Simulator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:ital,wght@0,400;0,600;0,700;1,700&family=Inter:wght@400;500;600;700;800;900&family=Permanent+Marker&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css?v=18.0">
+</head>
+<body>
+  <!-- App Root Container -->
+  <div id="gameApp" class="app-container">
+
+    <!-- 1. CINEMATIC OPENING INTRO OVERLAY -->
+    <div id="introScreen" class="screen-overlay intro-screen">
+      <canvas id="introCanvas"></canvas>
+      <div class="intro-ui">
+        <div class="intro-title-group">
+          <h1 class="intro-logo">PEN FIGHT</h1>
+          <p class="intro-tagline">Aim. Flick. Dominate.</p>
+        </div>
+        <button id="skipIntroBtn" class="intro-skip-btn">Skip Intro &rarr;</button>
+      </div>
+    </div>
+
+    <!-- 2. MAIN MENU SCREEN -->
+    <div id="mainMenuScreen" class="screen-overlay menu-screen hidden" style="display: none !important;">
+      <div class="menu-backdrop-glow"></div>
+      <div class="menu-content">
+        <div class="menu-header">
+          <div class="game-badge">2.5D RIGID BODY PHYSICS</div>
+          <h1 class="game-main-title">PEN FIGHT</h1>
+          <p class="game-subtitle">CLASSROOM CHAMPIONSHIP</p>
+        </div>
+
+        <nav class="menu-nav">
+          <button id="menuPlayBtn" class="menu-btn primary-btn">
+            <span class="btn-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            </span>
+            <span class="btn-text">PLAY VS AI</span>
+          </button>
+          <button id="menuPvpBtn" class="menu-btn secondary-btn">
+            <span class="btn-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+            </span>
+            <span class="btn-text">2-PLAYER PASS & PLAY</span>
+          </button>
+          <button id="menuPenSelectBtn" class="menu-btn tertiary-btn">
+            <span class="btn-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+            </span>
+            <span class="btn-text">PEN COLLECTION & CUSTOMIZER</span>
+          </button>
+          <button id="menuArenaBtn" class="menu-btn tertiary-btn">
+            <span class="btn-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+            </span>
+            <span class="btn-text">ARENA SELECT (5 ARENAS)</span>
+          </button>
+          <button id="menuPracticeBtn" class="menu-btn tertiary-btn">
+            <span class="btn-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14l-5-5 1.41-1.41L12 14.17l7.59-7.59L21 8l-9 9z"/></svg>
+            </span>
+            <span class="btn-text">PRACTICE & PHYSICS LAB</span>
+          </button>
+          <div class="menu-bottom-row">
+            <button id="menuTutorialBtn" class="menu-small-btn">How to Play</button>
+            <button id="menuSettingsBtn" class="menu-small-btn">Settings</button>
+            <button id="menuDebugToggleBtn" class="menu-small-btn">Debug (F3)</button>
+          </div>
+        </nav>
+      </div>
+    </div>
+
+    <!-- 3. PEN SELECTION SCREEN -->
+    <div id="penSelectScreen" class="screen-overlay sub-screen hidden" style="display: none !important;">
+      <div class="sub-screen-header">
+        <button id="backFromPenSelectBtn" class="back-btn">&larr; Back to Menu</button>
+        <h2>Pen Collection & Size Customizer</h2>
+        <div class="header-tab-group">
+          <button id="tabEquipP1" class="header-tab active">Equip Player 1</button>
+          <button id="tabEquipP2" class="header-tab">Equip Player 2 / AI</button>
+        </div>
+      </div>
+
+      <!-- Color Palette Customizer Row -->
+      <div class="pen-skin-palette-bar">
+        <span class="skin-bar-title">Pen Color Theme:</span>
+        <div id="penSkinSwatches" class="skin-swatches-list">
+          <!-- Populated dynamically with 10 vibrant color swatches -->
+        </div>
+      </div>
+
+      <div class="pen-carousel-container">
+        <div id="penCardsCarousel" class="pen-cards-carousel">
+          <!-- Dynamically populated 8 distinct pen archetypes and sizes -->
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. ARENA SELECTION SCREEN -->
+    <div id="arenaSelectScreen" class="screen-overlay sub-screen hidden" style="display: none !important;">
+      <div class="sub-screen-header">
+        <button id="backFromArenaBtn" class="back-btn">&larr; Back to Menu</button>
+        <h2>Select Tabletop Arena</h2>
+      </div>
+      <div id="arenaGrid" class="arena-grid">
+        <!-- Dynamically populated 5 arena cards -->
+      </div>
+    </div>
+
+    <!-- 5. ACTIVE GAMEPLAY SCREEN & HUD -->
+    <div id="gameplayScreen" class="screen-overlay gameplay-screen hidden" style="display: none !important;">
+      
+      <!-- Top Gameplay Bar -->
+      <header class="gameplay-header">
+        <button id="gameplayMenuBtn" class="header-btn" title="Back to Menu">Menu</button>
+        
+        <!-- Scoreboard -->
+        <div class="gameplay-scoreboard">
+          <div class="player-score-block p1-block">
+            <div class="player-info">
+              <span class="player-name">PLAYER 1</span>
+              <div id="p1TeamDots" class="team-pens-dots">
+                <span class="pen-dot active"></span>
+              </div>
+              <span id="p1PenNameTag" class="player-pen-tag">Imported Gel</span>
+            </div>
+            <div id="p1ScoreVal" class="score-number">0</div>
+          </div>
+
+          <div class="score-vs-divider">
+            <span id="matchFormatLabel" class="match-badge">BEST OF 3</span>
+            <span class="vs-text">VS</span>
+            <span id="roundIndicatorLabel" class="round-counter">ROUND 1</span>
+          </div>
+
+          <div class="player-score-block p2-block">
+            <div id="p2ScoreVal" class="score-number">0</div>
+            <div class="player-info right-aligned">
+              <span id="p2TitleTag" class="player-name">AI BOT</span>
+              <div id="p2TeamDots" class="team-pens-dots">
+                <span class="pen-dot active"></span>
+              </div>
+              <span id="p2PenNameTag" class="player-pen-tag">Heavy Tank</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="header-right-controls">
+          <button id="quickRestartBtn" class="header-btn" title="Restart Match">Reset</button>
+          <button id="quickSoundBtn" class="header-btn" title="Toggle Sound">Sound: ON</button>
+        </div>
+      </header>
+
+      <!-- Center Turn & Status Banner -->
+      <div class="turn-status-wrap">
+        <div id="turnBannerText" class="turn-banner p1-turn">
+          PLAYER 1 TURN &mdash; Drag back on your pen to aim & strike!
+        </div>
+      </div>
+
+      <!-- Main Game Canvas Area -->
+      <main id="gameCanvasArea" class="canvas-viewport">
+        <canvas id="gameCanvas"></canvas>
+        <!-- Double Knockout Auto-Restart Overlay Notification -->
+        <div id="doubleKnockoutToast" class="double-knockout-toast hidden">
+          <div class="double-toast-content">
+            <span class="toast-title">?? DOUBLE KNOCKOUT!</span>
+            <span class="toast-desc">Both pens fell off the table � Auto restarting round...</span>
+          </div>
+        </div>
+      </main>
+
+      <!-- Bottom Dock: Strike Contact & Pullback Power Indicator -->
+      <footer class="gameplay-footer">
+        <div class="dock-left-pen-info">
+          <div class="dock-label">ACTIVE PEN</div>
+          <div id="dockActivePenName" class="dock-val">Imported Gel Pen (28g)</div>
+          <div id="dockActivePenCoM" class="dock-subval">Balance: Rear-Heavy (+0.30)</div>
+        </div>
+
+        <!-- Strike Contact Point Selection (Tip, Center, Tail) -->
+        <div class="strike-point-selector">
+          <span class="dock-label">STRIKE CONTACT POINT:</span>
+          <div class="contact-btns">
+            <button class="contact-btn" data-t="0.75" title="Strike near tip for sharp hook spins">TIP (Hook)</button>
+            <button class="contact-btn active" data-t="0.0" title="Strike center of mass for solid forward ram">CENTER (Ram)</button>
+            <button class="contact-btn" data-t="-0.75" title="Strike near tail for wide helicopter sweeps">TAIL (Sweep)</button>
+          </div>
+        </div>
+
+        <!-- Visual Power Meter -->
+        <div class="dock-power-meter">
+          <div class="power-meter-header">
+            <span class="dock-label">STRIKE INTENSITY:</span>
+            <span id="powerLevelLabel" class="power-badge low">LOW (0%)</span>
+          </div>
+          <div class="power-track">
+            <div id="powerTrackFill" class="power-fill"></div>
+            <div class="power-marker marker-med"></div>
+            <div class="power-marker marker-high"></div>
+            <div class="power-marker marker-max"></div>
+          </div>
+          <div class="power-zones">
+            <span>LOW</span>
+            <span>MED</span>
+            <span>HIGH</span>
+            <span class="max-zone">MAX (RISKY)</span>
+          </div>
+        </div>
+      </footer>
+    </div>
+
+    <!-- 6. ROUND KNOCKOUT MODAL -->
+    <div id="roundKnockoutModal" class="modal-overlay hidden" style="display: none !important;">
+      <div class="modal-card knockout-card">
+        <div class="knockout-badge">KNOCKED OFF THE TABLE!</div>
+        <h2 id="knockoutTitle" class="knockout-title">PLAYER 1 WINS!</h2>
+        <p id="knockoutDesc" class="knockout-desc">The opponent pen fell off the desk boundary.</p>
+        <div class="round-summary-score">
+          <div class="round-score-box">
+            <span class="score-p-name">PLAYER 1</span>
+            <span id="roundScoreP1" class="round-score-val">1</span>
+          </div>
+          <span class="round-vs-divider">&mdash;</span>
+          <div class="round-score-box">
+            <span id="roundScoreP2" class="round-score-val">0</span>
+            <span id="roundScoreP2Name" class="score-p-name">OPPONENT</span>
+          </div>
+        </div>
+        <div class="knockout-btn-group">
+          <button id="nextRoundBtn" class="primary-modal-btn">NEXT ROUND</button>
+          <button id="restartMatchModalBtn" class="secondary-modal-btn">RESTART MATCH</button>
+          <button id="knockoutMenuBtn" class="secondary-modal-btn">MAIN MENU</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7. MATCH VICTORY & TROPHY SCREEN -->
+    <div id="victoryScreen" class="screen-overlay victory-screen hidden" style="display: none !important;">
+      <div class="victory-backdrop-glow"></div>
+      <div class="victory-content">
+        <div class="victory-header">
+          <div class="trophy-badge">MATCH CHAMPION</div>
+          <h1 id="victoryWinnerTitle" class="victory-title">PLAYER 1 DOMINATES!</h1>
+          <p id="victorySubtitle" class="victory-subtitle">Classroom Pen Fighting Champion</p>
+        </div>
+
+        <!-- 3D Rotating Pen Trophy Canvas -->
+        <div class="trophy-stage">
+          <canvas id="trophyCanvas" width="360" height="220"></canvas>
+          <div class="trophy-pedestal"></div>
+        </div>
+
+        <!-- Match Statistics -->
+        <div class="match-stats-grid">
+          <div class="stat-card">
+            <span class="stat-num" id="statShotsTaken">14</span>
+            <span class="stat-title">Shots Taken</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-num" id="statHitsLanded">11</span>
+            <span class="stat-title">Direct Hits</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-num" id="statMaxImpact">842 N</span>
+            <span class="stat-title">Max Impact</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-num" id="statAvgPower">68%</span>
+            <span class="stat-title">Avg Power</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-num" id="statKnockouts">2</span>
+            <span class="stat-title">Knockouts</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-num" id="statMatchTime">01:45</span>
+            <span class="stat-title">Match Time</span>
+          </div>
+        </div>
+
+        <div class="victory-actions">
+          <button id="victoryRematchBtn" class="primary-modal-btn">REMATCH</button>
+          <button id="victoryChangePenBtn" class="secondary-modal-btn">CHANGE PEN</button>
+          <button id="victoryMenuBtn" class="secondary-modal-btn">MAIN MENU</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 8. HOW TO PLAY (TUTORIAL) MODAL -->
+    <div id="tutorialModal" class="modal-overlay hidden" style="display: none !important;">
+      <div class="modal-card tutorial-card">
+        <div class="modal-header-row">
+          <h3>How to Play Pen Fight</h3>
+          <button id="closeTutorialBtn" class="close-x-btn">&times;</button>
+        </div>
+        <div class="tutorial-steps-grid">
+          <div class="tutorial-step">
+            <div class="step-badge">STEP 1</div>
+            <h4>Aim Your Shot</h4>
+            <p>Click/touch and drag back from your pen. The cyan laser line shows your initial strike trajectory.</p>
+          </div>
+          <div class="tutorial-step">
+            <div class="step-badge">STEP 2</div>
+            <h4>Charge Pullback Power</h4>
+            <p>Pull back further to charge power (Low &rarr; Med &rarr; High &rarr; Max). <em>Caution:</em> 100% power can fly off the desk!</p>
+          </div>
+          <div class="tutorial-step">
+            <div class="step-badge">STEP 3</div>
+            <h4>Choose Contact Point</h4>
+            <p>Hit the <strong>Tip</strong> for sharp curve hooks, <strong>Center</strong> for straight ramming, or <strong>Tail</strong> for wide sweeps.</p>
+          </div>
+          <div class="tutorial-step">
+            <div class="step-badge">STEP 4</div>
+            <h4>Score the Knockout!</h4>
+            <p>Push your opponent's Center of Mass off the desk boundary. Win best 2 out of 3 rounds to become the Champion!</p>
+          </div>
+        </div>
+        <button id="gotItTutorialBtn" class="primary-modal-btn">LET'S BATTLE! &rarr;</button>
+      </div>
+    </div>
+
+    <!-- 9. SETTINGS MODAL -->
+    <div id="settingsModal" class="modal-overlay hidden" style="display: none !important;">
+      <div class="modal-card settings-card">
+        <div class="modal-header-row">
+          <h3>Game Settings</h3>
+          <button id="closeSettingsBtn" class="close-x-btn">&times;</button>
+        </div>
+        <div class="settings-rows">
+          <div class="setting-row">
+            <label>Team Battle Mode (Pens per Side):</label>
+            <select id="settingTeamSize" class="styled-select">
+              <option value="1" selected>1 vs 1 (Solo Duel - 2 Pens)</option>
+              <option value="2">2 vs 2 (Tag Team - 4 Pens)</option>
+              <option value="3">3 vs 3 (Squad Brawl - 6 Pens)</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label>AI Difficulty:</label>
+            <select id="settingAiDiff" class="styled-select">
+              <option value="easy">Rookie (Easy - Fun & Casual)</option>
+              <option value="medium" selected>Student (Medium - Strategic)</option>
+              <option value="hard">Pen Master (Hard - Tactical & Bank Shots)</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label>Match Format:</label>
+            <select id="settingMatchFormat" class="styled-select">
+              <option value="1">Quick Match (1 Round)</option>
+              <option value="3" selected>Best of 3 Rounds</option>
+              <option value="5">Best of 5 Rounds</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label>Sound Effects (SFX):</label>
+            <input type="range" id="settingSfxVol" min="0" max="100" value="80">
+          </div>
+          <div class="setting-row">
+            <label>Camera Dynamic Shake & Zoom:</label>
+            <input type="checkbox" id="settingCameraEffects" checked>
+          </div>
+        </div>
+        <button id="saveSettingsBtn" class="primary-modal-btn">SAVE SETTINGS</button>
+      </div>
+    </div>
+
+    <!-- 10. REALTIME PHYSICS DEBUG OVERLAY (F3) -->
+    <div id="debugHud" class="debug-hud hidden" style="display: none !important;">
+      <div class="debug-title">PHYSICS ENGINE TELEMETRY (F3)</div>
+      <div id="debugContent" class="debug-data">
+        FPS: 60 | Active Substeps: 8<br>
+        P1 Vel: (0.0, 0.0) | AngVel: 0.00 rad/s<br>
+        P2 Vel: (0.0, 0.0) | AngVel: 0.00 rad/s<br>
+        CoM Offset: P1=+0.28, P2=0.00<br>
+        Collisions resolved: 0
+      </div>
+    </div>
+
+  </div>
+
+  <script src="js/app.js?v=18.0"></script>
+</body>
+</html>
