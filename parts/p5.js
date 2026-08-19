@@ -699,7 +699,7 @@ class PenFightGame {
           });
           this.hideAllModals();
           this.startOnlineMatch('online_host');
-        }, 800);
+        }, 500);
       },
       (data) => {
         this.handleRemoteData(data);
@@ -719,7 +719,7 @@ class PenFightGame {
     this.network.joinRoom(
       roomCode,
       (role) => {
-        if (statusText) statusText.textContent = 'Connected to Host! Waiting for game setup...';
+        if (statusText) statusText.textContent = 'Connected! Waiting for host to start...';
         this.sound.playVictory();
         this.network.send({
           type: 'GUEST_JOINED',
@@ -768,6 +768,8 @@ class PenFightGame {
       this.teamSize = msg.teamSize || 1;
       this.matchStartingTeam = msg.matchStartingTeam || 1;
 
+      this.network.send({ type: 'START_MATCH_ACK' });
+
       this.hideAllModals();
       this.startOnlineMatch('online_guest');
       return;
@@ -776,6 +778,19 @@ class PenFightGame {
     if (msg.type === 'GUEST_JOINED') {
       if (msg.guestPenId) this.p2PenId = msg.guestPenId;
       if (msg.guestPaletteId) this.p2PaletteId = msg.guestPaletteId;
+
+      this.matchStartingTeam = Math.random() < 0.5 ? 1 : 2;
+      this.network.send({
+        type: 'START_MATCH',
+        hostPenId: this.p1PenId,
+        hostPaletteId: this.p1PaletteId,
+        arenaId: this.selectedArenaId,
+        matchFormat: this.matchFormat,
+        teamSize: this.teamSize,
+        matchStartingTeam: this.matchStartingTeam
+      });
+      this.hideAllModals();
+      this.startOnlineMatch('online_host');
       return;
     }
 

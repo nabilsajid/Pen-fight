@@ -2401,7 +2401,7 @@ class PenFightGame {
           });
           this.hideAllModals();
           this.startOnlineMatch('online_host');
-        }, 800);
+        }, 500);
       },
       (data) => {
         this.handleRemoteData(data);
@@ -2421,7 +2421,7 @@ class PenFightGame {
     this.network.joinRoom(
       roomCode,
       (role) => {
-        if (statusText) statusText.textContent = 'Connected to Host! Waiting for game setup...';
+        if (statusText) statusText.textContent = 'Connected! Waiting for host to start...';
         this.sound.playVictory();
         this.network.send({
           type: 'GUEST_JOINED',
@@ -2470,6 +2470,8 @@ class PenFightGame {
       this.teamSize = msg.teamSize || 1;
       this.matchStartingTeam = msg.matchStartingTeam || 1;
 
+      this.network.send({ type: 'START_MATCH_ACK' });
+
       this.hideAllModals();
       this.startOnlineMatch('online_guest');
       return;
@@ -2478,6 +2480,19 @@ class PenFightGame {
     if (msg.type === 'GUEST_JOINED') {
       if (msg.guestPenId) this.p2PenId = msg.guestPenId;
       if (msg.guestPaletteId) this.p2PaletteId = msg.guestPaletteId;
+
+      this.matchStartingTeam = Math.random() < 0.5 ? 1 : 2;
+      this.network.send({
+        type: 'START_MATCH',
+        hostPenId: this.p1PenId,
+        hostPaletteId: this.p1PaletteId,
+        arenaId: this.selectedArenaId,
+        matchFormat: this.matchFormat,
+        teamSize: this.teamSize,
+        matchStartingTeam: this.matchStartingTeam
+      });
+      this.hideAllModals();
+      this.startOnlineMatch('online_host');
       return;
     }
 
@@ -2948,7 +2963,6 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 
-
 class NetworkManager {
   constructor(game) {
     this.game = game;
@@ -2957,6 +2971,7 @@ class NetworkManager {
     this.isHost = false;
     this.roomCode = null;
     this.isConnected = false;
+    this.heartbeatTimer = null;
   }
 
   generateRoomCode() {
@@ -2968,48 +2983,55 @@ class NetworkManager {
     return code;
   }
 
+  getIceConfig() {
+    return {
+      iceServers: [
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' },
+        { urls: 'stun:stun.cloudflare.com:3478' }
+      ]
+    };
+  }
+
   initHost(onRoomReady, onGuestConnected, onData, onError) {
     this.cleanup();
     this.isHost = true;
     const rawCode = this.generateRoomCode();
     this.roomCode = 'PEN-' + rawCode;
-    const peerId = 'penfight-v2-' + rawCode.toLowerCase();
+    const peerId = 'penfight-v3-' + rawCode.toLowerCase();
 
     if (typeof Peer === 'undefined') {
-      if (onError) onError('PeerJS library not loaded. Please check your internet connection.');
+      if (onError) onError('PeerJS library is loading, please try again in a moment.');
       return;
     }
 
     try {
       this.peer = new Peer(peerId, {
         debug: 1,
-        config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:global.stun.twilio.com:3478' }
-          ]
-        }
+        config: this.getIceConfig()
       });
 
       this.peer.on('open', (id) => {
-        console.log('Host peer initialized:', id);
+        console.log('[Host] Room created with Peer ID:', id);
         if (onRoomReady) onRoomReady(this.roomCode);
       });
 
       this.peer.on('connection', (conn) => {
-        console.log('Incoming connection from guest...');
+        console.log('[Host] Guest incoming connection established!');
         this.conn = conn;
         this.setupConnection(onGuestConnected, onData, onError);
       });
 
       this.peer.on('error', (err) => {
-        console.error('Host peer error:', err);
+        console.error('[Host] Peer error:', err);
         if (err.type === 'unavailable-id') {
-          // Retry with fresh code
+          // Retry with a different room code
           this.initHost(onRoomReady, onGuestConnected, onData, onError);
           return;
         }
-        if (onError) onError(err.type || 'Connection error');
+        if (onError) onError(err.message || err.type || 'Connection error');
       });
     } catch (e) {
       if (onError) onError(e.message);
@@ -3021,37 +3043,34 @@ class NetworkManager {
     this.isHost = false;
     let cleanCode = (inputCode || '').trim().toUpperCase().replace('PEN-', '').replace(/[^A-Z0-9]/g, '');
     if (!cleanCode || cleanCode.length < 3) {
-      if (onError) onError('Please enter a valid 4-digit room code.');
+      if (onError) onError('Please enter a valid room code (e.g. ' + this.generateRoomCode() + ').');
       return;
     }
     this.roomCode = 'PEN-' + cleanCode;
-    const hostPeerId = 'penfight-v2-' + cleanCode.toLowerCase();
+    const hostPeerId = 'penfight-v3-' + cleanCode.toLowerCase();
 
     if (typeof Peer === 'undefined') {
-      if (onError) onError('PeerJS library not loaded. Please check your internet connection.');
+      if (onError) onError('PeerJS library is loading, please try again in a moment.');
       return;
     }
 
     try {
       this.peer = new Peer(null, {
         debug: 1,
-        config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:global.stun.twilio.com:3478' }
-          ]
-        }
+        config: this.getIceConfig()
       });
 
       this.peer.on('open', (myId) => {
-        console.log('Guest peer ready (' + myId + '), connecting to ' + hostPeerId);
-        this.conn = this.peer.connect(hostPeerId, { reliable: true });
+        console.log('[Guest] Peer open with ID ' + myId + ', connecting to host:', hostPeerId);
+        this.conn = this.peer.connect(hostPeerId, {
+          reliable: true
+        });
         this.setupConnection(onConnected, onData, onError);
       });
 
       this.peer.on('error', (err) => {
-        console.error('Guest peer error:', err);
-        if (onError) onError(err.type || 'Could not connect to room. Please check the code.');
+        console.error('[Guest] Peer error:', err);
+        if (onError) onError(err.type === 'peer-unavailable' ? 'Room not found. Check that the code is correct and Player 1 is waiting.' : (err.message || err.type));
       });
     } catch (e) {
       if (onError) onError(e.message);
@@ -3061,26 +3080,75 @@ class NetworkManager {
   setupConnection(onConnected, onData, onError) {
     if (!this.conn) return;
 
-    this.conn.on('open', () => {
-      console.log('WebRTC DataChannel successfully connected!');
+    let hasHandshaked = false;
+
+    const finalizeOpen = () => {
+      if (hasHandshaked) return;
+      hasHandshaked = true;
       this.isConnected = true;
+      console.log('[Network] WebRTC connection handshake complete! Role:', this.isHost ? 'HOST' : 'GUEST');
+
+      this.startHeartbeat();
+
       if (onConnected) onConnected(this.isHost ? 'host' : 'guest');
+    };
+
+    this.conn.on('open', () => {
+      console.log('[Network] DataChannel OPENED!');
+      finalizeOpen();
     });
 
     this.conn.on('data', (data) => {
+      if (data && data.type === 'PING') {
+        this.send({ type: 'PONG' });
+        return;
+      }
+      if (data && data.type === 'PONG') {
+        return;
+      }
       if (onData) onData(data);
     });
 
     this.conn.on('close', () => {
-      console.log('Peer connection disconnected');
+      console.log('[Network] Peer disconnected');
       this.isConnected = false;
+      this.stopHeartbeat();
       if (this.game) this.game.handlePeerDisconnect();
     });
 
     this.conn.on('error', (err) => {
-      console.error('DataChannel error:', err);
+      console.error('[Network] DataChannel error:', err);
       if (onError) onError(err);
     });
+
+    // Fallback: If DataChannel open event is delayed, ping every 400ms up to 3s
+    let attempts = 0;
+    const checkInterval = setInterval(() => {
+      if (this.conn && this.conn.open) {
+        finalizeOpen();
+        clearInterval(checkInterval);
+      }
+      attempts++;
+      if (attempts > 12) {
+        clearInterval(checkInterval);
+      }
+    }, 250);
+  }
+
+  startHeartbeat() {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      if (this.isConnected && this.conn && this.conn.open) {
+        this.send({ type: 'PING' });
+      }
+    }, 2500);
+  }
+
+  stopHeartbeat() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
   }
 
   send(data) {
@@ -3088,12 +3156,13 @@ class NetworkManager {
       try {
         this.conn.send(data);
       } catch (err) {
-        console.error('Error sending packet:', err);
+        console.error('[Network] Packet send failed:', err);
       }
     }
   }
 
   cleanup() {
+    this.stopHeartbeat();
     if (this.conn) {
       try { this.conn.close(); } catch(e){}
       this.conn = null;
