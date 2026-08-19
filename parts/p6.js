@@ -9,8 +9,7 @@ class NetworkManager {
     this.currentBrokerIndex = 0;
     this.brokers = [
       'wss://broker.hivemq.com:8884/mqtt',
-      'wss://broker.emqx.io:8084/mqtt',
-      'wss://test.mosquitto.org:8081/mqtt'
+      'wss://broker.emqx.io:8084/mqtt'
     ];
   }
 
@@ -28,16 +27,17 @@ class NetworkManager {
     this.role = 'host';
     const rawCode = this.generateRoomCode();
     this.roomCode = 'PEN-' + rawCode;
-    this.topic = 'penfight/v9/' + rawCode.toLowerCase();
+    this.topic = 'penfight/v10/' + rawCode.toLowerCase();
 
     this.connectBroker(() => {
       this.client.subscribe(this.topic, { qos: 0 }, (err) => {
         if (err) {
-          console.error('[Host] Subscription error:', err);
-          if (onError) onError('Could not register room. Please try again.');
+          console.error('[Host] Subscribe error:', err);
+          if (onError) onError('Could not initialize room. Retrying...');
           return;
         }
-        console.log('[Host] Room open on topic:', this.topic);
+        console.log('[Host] Subscribed to unified room topic:', this.topic);
+        this.isConnected = true;
         if (onRoomReady) onRoomReady(this.roomCode);
       });
     }, onData, onError);
@@ -48,24 +48,24 @@ class NetworkManager {
     this.role = 'guest';
     let cleanCode = (inputCode || '').trim().toUpperCase().replace('PEN-', '').replace(/[^A-Z0-9]/g, '');
     if (!cleanCode || cleanCode.length < 3) {
-      if (onError) onError('Please enter a valid 4-digit room code.');
+      if (onError) onError('Please enter a 4-digit code (e.g. M5JL)');
       return;
     }
     this.roomCode = 'PEN-' + cleanCode;
-    this.topic = 'penfight/v9/' + cleanCode.toLowerCase();
+    this.topic = 'penfight/v10/' + cleanCode.toLowerCase();
 
     this.connectBroker(() => {
       this.client.subscribe(this.topic, { qos: 0 }, (err) => {
         if (err) {
-          console.error('[Guest] Subscription error:', err);
-          if (onError) onError('Could not connect to room.');
+          console.error('[Guest] Subscribe error:', err);
+          if (onError) onError('Could not find room. Please check the code.');
           return;
         }
-        console.log('[Guest] Subscribed to room topic:', this.topic);
+        console.log('[Guest] Subscribed to unified room topic:', this.topic);
         this.isConnected = true;
         if (onConnected) onConnected('guest');
 
-        // Broadcast presence until match starts
+        // Immediately send join signal and keep repeating until host responds
         const announceTimer = setInterval(() => {
           if (this.game.mode === 'online_guest' || !this.client || !this.client.connected) {
             clearInterval(announceTimer);
@@ -76,9 +76,9 @@ class NetworkManager {
             guestPenId: this.game.p2PenId,
             guestPaletteId: this.game.p2PaletteId
           });
-        }, 500);
+        }, 400);
 
-        setTimeout(() => clearInterval(announceTimer), 20000);
+        setTimeout(() => clearInterval(announceTimer), 25000);
       });
     }, onData, onError);
   }
@@ -86,32 +86,31 @@ class NetworkManager {
   connectBroker(onSubscribed, onData, onError) {
     const mqttLib = window.mqtt || (typeof mqtt !== 'undefined' ? mqtt : null);
     if (!mqttLib) {
-      if (onError) onError('Multiplayer library loading, please try again in a moment.');
+      if (onError) onError('Multiplayer service loading, tap connect in a moment...');
       return;
     }
 
     try {
       const brokerUrl = this.brokers[this.currentBrokerIndex % this.brokers.length];
-      const clientId = 'pf9_' + this.role + '_' + Math.random().toString(16).substring(2, 9);
-      console.log('[Network] Connecting to broker:', brokerUrl);
+      const clientId = 'pf10_' + this.role + '_' + Math.random().toString(16).substring(2, 9);
+      console.log('[Network] Connecting:', brokerUrl);
 
       this.client = mqttLib.connect(brokerUrl, {
         clientId: clientId,
         clean: true,
-        connectTimeout: 8000,
-        reconnectPeriod: 3000,
+        connectTimeout: 7000,
+        reconnectPeriod: 2500,
         keepalive: 30
       });
 
       this.client.on('connect', () => {
-        console.log('[Network] Connected to broker successfully!');
+        console.log('[Network] Connected to broker!');
         if (onSubscribed) onSubscribed();
       });
 
       this.client.on('message', (topic, payload) => {
         try {
-          const str = payload.toString();
-          const data = JSON.parse(str);
+          const data = JSON.parse(payload.toString());
           if (data && data.senderRole !== this.role) {
             if (onData) onData(data);
           }
@@ -126,7 +125,7 @@ class NetworkManager {
       });
     } catch (e) {
       console.error('[Network] Connect error:', e);
-      if (onError) onError('Connection error. Please check your network.');
+      if (onError) onError('Connection error. Please check your internet.');
     }
   }
 

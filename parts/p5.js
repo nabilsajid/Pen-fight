@@ -686,7 +686,6 @@ class PenFightGame {
       modal.style.setProperty('display', 'flex', 'important');
     }
     this.switchMultiplayerTab('host');
-    this.startHostingRoom();
   }
 
   switchMultiplayerTab(tab) {
@@ -698,13 +697,29 @@ class PenFightGame {
     if (tab === 'host') {
       if (tabHost) tabHost.classList.add('active');
       if (tabJoin) tabJoin.classList.remove('active');
-      if (panelHost) panelHost.classList.remove('hidden');
-      if (panelJoin) panelJoin.classList.add('hidden');
+      if (panelHost) {
+        panelHost.classList.remove('hidden');
+        panelHost.style.removeProperty('display');
+      }
+      if (panelJoin) {
+        panelJoin.classList.add('hidden');
+        panelJoin.style.setProperty('display', 'none', 'important');
+      }
+      this.startHostingRoom();
     } else {
       if (tabJoin) tabJoin.classList.add('active');
       if (tabHost) tabHost.classList.remove('active');
-      if (panelJoin) panelJoin.classList.remove('hidden');
-      if (panelHost) panelHost.classList.add('hidden');
+      if (panelJoin) {
+        panelJoin.classList.remove('hidden');
+        panelJoin.style.removeProperty('display');
+      }
+      if (panelHost) {
+        panelHost.classList.add('hidden');
+        panelHost.style.setProperty('display', 'none', 'important');
+      }
+      this.network.cleanup();
+      const input = document.getElementById('joinRoomCodeInput');
+      if (input) setTimeout(() => input.focus(), 100);
     }
   }
 
@@ -712,7 +727,7 @@ class PenFightGame {
     const codeEl = document.getElementById('hostRoomCodeVal');
     const statusText = document.getElementById('hostStatusText');
     if (codeEl) codeEl.textContent = 'CONNECTING...';
-    if (statusText) statusText.textContent = 'Opening secure room channel...';
+    if (statusText) statusText.textContent = 'Opening room channel...';
 
     this.network.initHost(
       (roomCode) => {
@@ -732,20 +747,28 @@ class PenFightGame {
   joinExistingRoom(roomCode) {
     const statusBadge = document.getElementById('joinStatusBadge');
     const statusText = document.getElementById('joinStatusText');
-    if (statusBadge) statusBadge.classList.remove('hidden');
-    if (statusText) statusText.textContent = 'Connecting to room ' + roomCode + '...';
+    let clean = (roomCode || '').trim().toUpperCase();
+    if (!clean.startsWith('PEN-')) {
+      clean = 'PEN-' + clean.replace(/[^A-Z0-9]/g, '');
+    }
+
+    if (statusBadge) {
+      statusBadge.classList.remove('hidden');
+      statusBadge.style.removeProperty('display');
+    }
+    if (statusText) statusText.textContent = 'Connecting to ' + clean + '...';
 
     this.network.joinRoom(
-      roomCode,
+      clean,
       (role) => {
-        if (statusText) statusText.textContent = 'Connected! Entering match...';
+        if (statusText) statusText.textContent = 'Joined room! Waiting for match start...';
         this.sound.playVictory();
       },
       (data) => {
         this.handleRemoteData(data);
       },
       (err) => {
-        const msg = (err && err.message) ? err.message : (typeof err === 'string' ? err : 'Could not connect. Retrying...');
+        const msg = (err && err.message) ? err.message : (typeof err === 'string' ? err : 'Could not find room. Please check the code.');
         if (statusBadge) statusBadge.classList.remove('hidden');
         if (statusText) statusText.textContent = msg;
       }
@@ -776,7 +799,7 @@ class PenFightGame {
     if (!msg || !msg.type) return;
 
     if (msg.type === 'GUEST_JOINED') {
-      if (this.mode === 'online_host' && this.state !== 'MENU') return; // Already running
+      if (this.mode === 'online_host' && this.state !== 'MENU') return;
 
       if (msg.guestPenId) this.p2PenId = msg.guestPenId;
       if (msg.guestPaletteId) this.p2PaletteId = msg.guestPaletteId;
@@ -919,7 +942,6 @@ class PenFightGame {
     bindBtn('tabHostRoom', () => {
       this.sound.playClick();
       this.switchMultiplayerTab('host');
-      this.startHostingRoom();
     });
 
     bindBtn('tabJoinRoom', () => {
@@ -956,12 +978,27 @@ class PenFightGame {
       }
     });
 
-    bindBtn('joinRoomSubmitBtn', () => {
+    const submitJoin = () => {
       this.sound.playClick();
       const input = document.getElementById('joinRoomCodeInput');
       const val = input ? input.value : '';
       this.joinExistingRoom(val);
-    });
+    };
+
+    bindBtn('joinRoomSubmitBtn', submitJoin);
+
+    const joinInput = document.getElementById('joinRoomCodeInput');
+    if (joinInput) {
+      joinInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          submitJoin();
+        }
+      });
+      joinInput.addEventListener('input', (e) => {
+        e.target.value = e.target.value.toUpperCase();
+      });
+    }
 
     bindBtn('menuPlayBtn', () => {
       this.sound.playClick();
