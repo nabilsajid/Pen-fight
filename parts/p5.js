@@ -1,4 +1,3 @@
-
 class PenFightGame {
   constructor() {
     this.canvas = document.getElementById('gameCanvas');
@@ -10,8 +9,9 @@ class PenFightGame {
 
     this.physics = new PhysicsEngine(this.deskBounds, this.sound);
     this.ui = new GameUI(this.canvas, this);
+    this.network = new NetworkManager(this);
 
-    this.mode = 'vs_ai';
+    this.mode = 'vs_ai'; // 'vs_ai', 'pvp', 'practice', 'online_host', 'online_guest'
     this.state = 'MENU';
     this.teamSize = 1;
     this.roundTurnCount = 0;
@@ -19,10 +19,8 @@ class PenFightGame {
     this.activeSlotT1 = 0;
     this.activeSlotT2 = 0;
     this.matchStartingTeam = 1;
-    this.currentTurn = 'player1';
     this.lastShotOwner = 'player1';
-    this.matchStartingPlayer = null;
-    this.matchStartingTeam = 1;
+
     this.matchFormat = 3;
     this.targetScore = 2;
     this.currentRound = 1;
@@ -35,7 +33,6 @@ class PenFightGame {
     this.selectedArenaId = 'classic_desk';
     this.cameraEffectsEnabled = true;
     this.debugMode = false;
-    
 
     this.matchStats = {
       shotsTaken: 0,
@@ -46,8 +43,8 @@ class PenFightGame {
       startTime: Date.now()
     };
 
-    this.penP1 = null;
-    this.penP2 = null;
+    this.pensT1 = [];
+    this.pensT2 = [];
 
     this.initDOM();
     this.checkIntro();
@@ -57,7 +54,22 @@ class PenFightGame {
     requestAnimationFrame(this.loop);
   }
 
-  
+  isLocalPlayerTurn() {
+    if (this.mode === 'online_host') {
+      return this.currentTurnTeam === 1;
+    }
+    if (this.mode === 'online_guest') {
+      return this.currentTurnTeam === 2;
+    }
+    if (this.mode === 'vs_ai') {
+      return this.currentTurnTeam === 1;
+    }
+    return true; // pvp local / practice
+  }
+
+  isOnlineMultiplayer() {
+    return this.mode === 'online_host' || this.mode === 'online_guest';
+  }
 
   setupCanvasSize() {
     const container = document.getElementById('gameCanvasArea');
@@ -65,11 +77,14 @@ class PenFightGame {
     const w = (rect && rect.width > 100) ? rect.width : window.innerWidth;
     const h = (rect && rect.height > 100) ? rect.height : (window.innerHeight - 130);
 
-    this.canvas.width = Math.max(640, Math.floor(w));
-    this.canvas.height = Math.max(480, Math.floor(h));
+    if (this.canvas) {
+      this.canvas.width = Math.max(640, Math.floor(w));
+      this.canvas.height = Math.max(480, Math.floor(h));
+    }
   }
 
   updateDeskDimensions() {
+    if (!this.canvas) return;
     const w = this.canvas.width;
     const h = this.canvas.height;
     const deskW = Math.min(940, Math.max(560, w * 0.84));
@@ -135,7 +150,7 @@ class PenFightGame {
   }
 
   hideAllModals() {
-    ['roundKnockoutModal', 'tutorialModal', 'settingsModal'].forEach(id => {
+    ['roundKnockoutModal', 'tutorialModal', 'settingsModal', 'multiplayerModal'].forEach(id => {
       const el = document.getElementById(id);
       if (el) {
         el.classList.add('hidden');
@@ -175,9 +190,7 @@ class PenFightGame {
       startTime: Date.now()
     };
 
-    // Randomize starting team for the match (1 = Player 1, 2 = AI/Player 2)
     this.matchStartingTeam = Math.random() < 0.5 ? 1 : 2;
-    this.matchStartingPlayer = this.matchStartingTeam === 1 ? 'player1' : ((mode === 'vs_ai') ? 'ai' : 'player2');
 
     this.showScreen('gameplayScreen');
     this.setupCanvasSize();
@@ -191,9 +204,9 @@ class PenFightGame {
     this.roundTurnCount = 0;
     this.physics.roundTurnCount = 0;
 
-    // Strict round opener alternation:
     if (!this.matchStartingTeam) this.matchStartingTeam = 1;
     this.currentTurnTeam = (this.currentRound % 2 === 1) ? this.matchStartingTeam : (this.matchStartingTeam === 1 ? 2 : 1);
+
     this.activeSlotT1 = 0;
     this.activeSlotT2 = 0;
     this.lastShotOwner = (this.currentTurnTeam === 1) ? 'player1' : ((this.mode === 'vs_ai') ? 'ai' : 'player2');
@@ -264,7 +277,7 @@ class PenFightGame {
     }
   }
 
-  executeShot(pen, strikePoint, impulse, powerPercent) {
+  executeShot(pen, strikePoint, impulse, powerPercent, isRemote = false) {
     if (this.state !== 'AIMING' || !pen) return;
     this.state = 'IN_MOTION';
     this.roundTurnCount++;
@@ -281,6 +294,19 @@ class PenFightGame {
     this.sound.playStrike(powerPercent);
     pen.applyImpulse(impulse, strikePoint);
     this.ui.addSparkParticles(strikePoint.x, strikePoint.y, 18, pen.owner === 'player1' ? '#00e5ff' : '#ff3d00');
+
+    // Broadcast shot to opponent if this was a local flick
+    if (!isRemote && this.isOnlineMultiplayer()) {
+      this.network.send({
+        type: 'SHOT_FIRED',
+        team: pen.team,
+        slotIndex: pen.slotIndex || 0,
+        strikePoint: { x: strikePoint.x, y: strikePoint.y },
+        impulse: { x: impulse.x, y: impulse.y },
+        powerPercent: powerPercent,
+        strikeOffsetT: this.ui.strikeOffsetT
+      });
+    }
 
     this.updateTurnBanner();
   }
@@ -315,19 +341,15 @@ class PenFightGame {
   checkPhysicsMotionEnd() {
     if (this.state !== 'IN_MOTION') return;
 
-    // Check if all pens on the table have settled (finished falling or stopped)
     for (const p of this.physics.pens) {
       const isSettled = p.isDead || (p.isFalling && p.fallProgress >= 0.95) || (!p.isFalling && p.isAtRest());
       if (!isSettled) return;
     }
 
-    // FIRST-MOVE PROTECTION ENFORCEMENT:
-    // On the very first strike of any round, an opponent pen CANNOT be knocked out!
     if (this.roundTurnCount <= 2) {
       const opponentPens = (this.currentTurnTeam === 1) ? this.pensT2 : this.pensT1;
       for (const p of opponentPens) {
         if (p.isFalling || p.isDead) {
-          // Restore opponent pen to edge safety
           p.isFalling = false;
           p.isDead = false;
           p.fallProgress = 0;
@@ -343,7 +365,6 @@ class PenFightGame {
     const aliveT1 = (this.pensT1 || []).filter(p => !p.isDead && !p.isFalling).length;
     const aliveT2 = (this.pensT2 || []).filter(p => !p.isDead && !p.isFalling).length;
 
-    // Case 1: Mutual total elimination -> Auto restart round!
     if (aliveT1 === 0 && aliveT2 === 0) {
       this.state = 'ROUND_OVER';
       if (this.pensT1[0]) this.sound.playPenFalling(this.pensT1[0]);
@@ -355,22 +376,33 @@ class PenFightGame {
       return;
     }
 
-    // Case 2: Team 1 wiped out (only if not protected turn 1)
     if (aliveT1 === 0) {
-      const winner = (this.mode === 'vs_ai') ? 'AI BOT' : 'PLAYER 2';
+      const winner = (this.mode === 'vs_ai') ? 'AI BOT' : (this.mode === 'online_guest' ? 'YOU (PLAYER 2)' : 'PLAYER 2');
       const isSelf = (this.lastShotOwner === 'player1');
       this.handleRoundEnd(winner, isSelf);
       return;
     }
 
-    // Case 3: Team 2 wiped out (only if not protected turn 1)
     if (aliveT2 === 0) {
+      const winner = (this.mode === 'online_host' ? 'YOU (PLAYER 1)' : 'PLAYER 1');
       const isSelf = (this.lastShotOwner !== 'player1');
-      this.handleRoundEnd('PLAYER 1', isSelf);
+      this.handleRoundEnd(winner, isSelf);
       return;
     }
 
-    // Case 4: Both teams have surviving pens -> strictly alternate to next turn!
+    // If host in online multiplayer, broadcast authoritative state sync to prevent desync
+    if (this.mode === 'online_host') {
+      const penSync = [];
+      this.pensT1.forEach((p, idx) => penSync.push({ team: 1, slotIndex: idx, x: p.pos.x, y: p.pos.y, angle: p.angle, isDead: p.isDead, isFalling: p.isFalling }));
+      this.pensT2.forEach((p, idx) => penSync.push({ team: 2, slotIndex: idx, x: p.pos.x, y: p.pos.y, angle: p.angle, isDead: p.isDead, isFalling: p.isFalling }));
+      this.network.send({
+        type: 'SYNC_STATE',
+        roundTurnCount: this.roundTurnCount,
+        roundScores: this.roundScores,
+        pens: penSync
+      });
+    }
+
     this.switchTurn();
   }
 
@@ -407,10 +439,10 @@ class PenFightGame {
     this.state = 'ROUND_OVER';
     this.matchStats.knockouts++;
 
-    if (winner === 'PLAYER 1') {
+    if (winner.includes('PLAYER 1')) {
       this.roundScores.player1++;
       this.sound.playVictory();
-    } else if (winner === 'PLAYER 2') {
+    } else if (winner.includes('PLAYER 2')) {
       this.roundScores.player2++;
       this.sound.playVictory();
     } else {
@@ -437,16 +469,11 @@ class PenFightGame {
 
     if (modal && title && desc) {
       if (isSelfKnockout) {
-        if (winner === 'PLAYER 1') {
-          title.textContent = 'SELF-KNOCKOUT! PLAYER 1 WINS!';
-          desc.textContent = 'The opponent pen slid off the table edge on its own!';
-        } else {
-          title.textContent = 'SELF-KNOCKOUT! ' + winner + ' WINS!';
-          desc.textContent = 'Your pen slipped off the desk boundary!';
-        }
+        title.textContent = 'SELF-KNOCKOUT! ' + winner + ' WINS!';
+        desc.textContent = 'A pen slid off the desk boundary on its own!';
       } else {
-        title.textContent = winner === 'PLAYER 1' ? 'KNOCKOUT! PLAYER 1 WINS!' : 'KNOCKED OUT! ' + winner + ' WINS!';
-        desc.textContent = winner === 'PLAYER 1' ? 'The opponent pen was knocked completely off the table!' : 'Your pen fell off the desk boundary!';
+        title.textContent = 'KNOCKOUT! ' + winner + ' WINS!';
+        desc.textContent = 'All opponent team pens were knocked completely off the desk!';
       }
 
       if (rP1) rP1.textContent = this.roundScores.player1;
@@ -460,6 +487,9 @@ class PenFightGame {
   nextRound() {
     this.currentRound++;
     this.hideAllModals();
+    if (this.mode === 'online_host') {
+      this.network.send({ type: 'NEXT_ROUND' });
+    }
     this.initRound();
   }
 
@@ -479,15 +509,22 @@ class PenFightGame {
     const mins = String(Math.floor(durationSec / 60)).padStart(2, '0');
     const secs = String(durationSec % 60).padStart(2, '0');
 
-    document.getElementById('statShotsTaken').textContent = totalShots;
-    document.getElementById('statHitsLanded').textContent = Math.round(totalShots * 0.75);
-    document.getElementById('statMaxImpact').textContent = Math.round(750 + Math.random() * 180) + ' N';
-    document.getElementById('statAvgPower').textContent = avgP + '%';
-    document.getElementById('statKnockouts').textContent = this.matchStats.knockouts;
-    document.getElementById('statMatchTime').textContent = mins + ':' + secs;
+    const sShots = document.getElementById('statShotsTaken');
+    const sHits = document.getElementById('statHitsLanded');
+    const sImpact = document.getElementById('statMaxImpact');
+    const sAvgP = document.getElementById('statAvgPower');
+    const sKo = document.getElementById('statKnockouts');
+    const sTime = document.getElementById('statMatchTime');
 
-    const winnerPenId = winner === 'PLAYER 1' ? this.p1PenId : this.p2PenId;
-    const winnerPal = PEN_COLOR_PALETTES.find(p => p.id === (winner === 'PLAYER 1' ? this.p1PaletteId : this.p2PaletteId));
+    if (sShots) sShots.textContent = totalShots;
+    if (sHits) sHits.textContent = Math.round(totalShots * 0.75);
+    if (sImpact) sImpact.textContent = Math.round(750 + Math.random() * 180) + ' N';
+    if (sAvgP) sAvgP.textContent = avgP + '%';
+    if (sKo) sKo.textContent = this.matchStats.knockouts;
+    if (sTime) sTime.textContent = mins + ':' + secs;
+
+    const winnerPenId = winner.includes('PLAYER 1') ? this.p1PenId : this.p2PenId;
+    const winnerPal = PEN_COLOR_PALETTES.find(p => p.id === (winner.includes('PLAYER 1') ? this.p1PaletteId : this.p2PaletteId));
     this.renderTrophyPen(winnerPenId, winnerPal);
   }
 
@@ -522,13 +559,23 @@ class PenFightGame {
     const roundIndicator = document.getElementById('roundIndicatorLabel');
     if (roundIndicator) roundIndicator.textContent = 'ROUND ' + this.currentRound;
 
+    const formatBadge = document.getElementById('matchFormatLabel');
+    if (formatBadge) {
+      formatBadge.textContent = this.teamSize === 1 ? '1v1 DUEL' : this.teamSize === 2 ? '2v2 TAG TEAM' : '3v3 SQUAD BRAWL';
+    }
+
     const p1Tag = document.getElementById('p1PenNameTag');
     const p2Tag = document.getElementById('p2PenNameTag');
     if (p1Tag) p1Tag.textContent = (PEN_CONFIGS[this.p1PenId] || {}).name || 'Pen';
     if (p2Tag) p2Tag.textContent = (PEN_CONFIGS[this.p2PenId] || {}).name || 'Pen';
 
     const p2Title = document.getElementById('p2TitleTag');
-    if (p2Title) p2Title.textContent = (this.mode === 'vs_ai') ? 'AI BOT' : 'PLAYER 2';
+    if (p2Title) {
+      if (this.mode === 'vs_ai') p2Title.textContent = 'AI SQUAD';
+      else if (this.mode === 'online_host') p2Title.textContent = 'PLAYER 2 (GUEST)';
+      else if (this.mode === 'online_guest') p2Title.textContent = 'YOU (PLAYER 2)';
+      else p2Title.textContent = 'PLAYER 2';
+    }
 
     const dotWrap1 = document.getElementById('p1TeamDots');
     const dotWrap2 = document.getElementById('p2TeamDots');
@@ -572,17 +619,222 @@ class PenFightGame {
     } else if (this.currentTurnTeam === 1) {
       banner.className = 'turn-banner p1-turn';
       const slotText = this.teamSize > 1 ? ' (PEN ' + (this.activeSlotT1 + 1) + ')' : '';
-      const protText = this.roundTurnCount < 2 ? ' [??? 1st Shot Shield Active]' : ' [?? Knockout Active]';
-      banner.innerHTML = 'PLAYER 1' + slotText + ' TURN &mdash; Drag & Release to Strike!' + protText;
+      const protText = this.roundTurnCount < 2 ? ' [🛡️ 1st Shot Shield Active]' : ' [⚔️ Knockout Active]';
+      if (this.mode === 'online_guest') {
+        banner.innerHTML = 'PLAYER 1' + slotText + ' (OPPONENT) IS AIMING...' + protText;
+      } else {
+        banner.innerHTML = (this.mode === 'online_host' ? 'YOUR TURN (PLAYER 1)' : 'PLAYER 1') + slotText + ' &mdash; Drag & Release to Strike!' + protText;
+      }
     } else if (this.currentTurnTeam === 2) {
       banner.className = 'turn-banner p2-turn';
       const slotText = this.teamSize > 1 ? ' (PEN ' + (this.activeSlotT2 + 1) + ')' : '';
-      const protText = this.roundTurnCount < 2 ? ' [??? 1st Shot Shield Active]' : ' [?? Knockout Active]';
+      const protText = this.roundTurnCount < 2 ? ' [🛡️ 1st Shot Shield Active]' : ' [⚔️ Knockout Active]';
       if (this.mode === 'vs_ai') {
         banner.innerHTML = 'OPPONENT AI' + slotText + ' IS AIMING...' + protText;
+      } else if (this.mode === 'online_host') {
+        banner.innerHTML = 'PLAYER 2' + slotText + ' (OPPONENT) IS AIMING...' + protText;
       } else {
-        banner.innerHTML = 'PLAYER 2' + slotText + ' TURN &mdash; Drag & Release to Strike!' + protText;
+        banner.innerHTML = (this.mode === 'online_guest' ? 'YOUR TURN (PLAYER 2)' : 'PLAYER 2') + slotText + ' &mdash; Drag & Release to Strike!' + protText;
       }
+    }
+  }
+
+  openMultiplayerModal() {
+    this.hideAllModals();
+    const modal = document.getElementById('multiplayerModal');
+    if (modal) {
+      modal.classList.remove('hidden');
+      modal.style.setProperty('display', 'flex', 'important');
+    }
+    this.switchMultiplayerTab('host');
+    this.startHostingRoom();
+  }
+
+  switchMultiplayerTab(tab) {
+    const tabHost = document.getElementById('tabHostRoom');
+    const tabJoin = document.getElementById('tabJoinRoom');
+    const panelHost = document.getElementById('mpHostPanel');
+    const panelJoin = document.getElementById('mpJoinPanel');
+
+    if (tab === 'host') {
+      if (tabHost) tabHost.classList.add('active');
+      if (tabJoin) tabJoin.classList.remove('active');
+      if (panelHost) panelHost.classList.remove('hidden');
+      if (panelJoin) panelJoin.classList.add('hidden');
+    } else {
+      if (tabJoin) tabJoin.classList.add('active');
+      if (tabHost) tabHost.classList.remove('active');
+      if (panelJoin) panelJoin.classList.remove('hidden');
+      if (panelHost) panelHost.classList.add('hidden');
+    }
+  }
+
+  startHostingRoom() {
+    const codeEl = document.getElementById('hostRoomCodeVal');
+    const statusText = document.getElementById('hostStatusText');
+    if (codeEl) codeEl.textContent = 'CONNECTING...';
+    if (statusText) statusText.textContent = 'Generating secure room...';
+
+    this.network.initHost(
+      (roomCode) => {
+        if (codeEl) codeEl.textContent = roomCode;
+        if (statusText) statusText.textContent = 'Waiting for Player 2 to join...';
+      },
+      (role) => {
+        // Guest connected!
+        if (statusText) statusText.textContent = 'Player 2 connected! Preparing match...';
+        this.sound.playVictory();
+
+        // Host sends init packet with game parameters
+        setTimeout(() => {
+          this.matchStartingTeam = Math.random() < 0.5 ? 1 : 2;
+          this.network.send({
+            type: 'START_MATCH',
+            hostPenId: this.p1PenId,
+            hostPaletteId: this.p1PaletteId,
+            arenaId: this.selectedArenaId,
+            matchFormat: this.matchFormat,
+            teamSize: this.teamSize,
+            matchStartingTeam: this.matchStartingTeam
+          });
+          this.hideAllModals();
+          this.startOnlineMatch('online_host');
+        }, 800);
+      },
+      (data) => {
+        this.handleRemoteData(data);
+      },
+      (err) => {
+        if (statusText) statusText.textContent = 'Error: ' + err;
+      }
+    );
+  }
+
+  joinExistingRoom(roomCode) {
+    const statusBadge = document.getElementById('joinStatusBadge');
+    const statusText = document.getElementById('joinStatusText');
+    if (statusBadge) statusBadge.classList.remove('hidden');
+    if (statusText) statusText.textContent = 'Connecting to room ' + roomCode + '...';
+
+    this.network.joinRoom(
+      roomCode,
+      (role) => {
+        if (statusText) statusText.textContent = 'Connected to Host! Waiting for game setup...';
+        this.sound.playVictory();
+        this.network.send({
+          type: 'GUEST_JOINED',
+          guestPenId: this.p2PenId,
+          guestPaletteId: this.p2PaletteId
+        });
+      },
+      (data) => {
+        this.handleRemoteData(data);
+      },
+      (err) => {
+        if (statusBadge) statusBadge.classList.remove('hidden');
+        if (statusText) statusText.textContent = 'Failed to connect: ' + err;
+      }
+    );
+  }
+
+  startOnlineMatch(role = 'online_host') {
+    this.mode = role;
+    this.currentRound = 1;
+    this.roundScores = { player1: 0, player2: 0, ai: 0 };
+    this.targetScore = Math.ceil(this.matchFormat / 2);
+    this.matchStats = {
+      shotsTaken: 0,
+      hitsLanded: 0,
+      maxImpact: 0,
+      powerSum: 0,
+      knockouts: 0,
+      startTime: Date.now()
+    };
+
+    this.showScreen('gameplayScreen');
+    this.setupCanvasSize();
+    this.updateDeskDimensions();
+    this.initRound();
+  }
+
+  handleRemoteData(msg) {
+    if (!msg || !msg.type) return;
+
+    if (msg.type === 'START_MATCH') {
+      this.p1PenId = msg.hostPenId || this.p1PenId;
+      this.p1PaletteId = msg.hostPaletteId || this.p1PaletteId;
+      this.selectedArenaId = msg.arenaId || this.selectedArenaId;
+      this.matchFormat = msg.matchFormat || 3;
+      this.teamSize = msg.teamSize || 1;
+      this.matchStartingTeam = msg.matchStartingTeam || 1;
+
+      this.hideAllModals();
+      this.startOnlineMatch('online_guest');
+      return;
+    }
+
+    if (msg.type === 'GUEST_JOINED') {
+      if (msg.guestPenId) this.p2PenId = msg.guestPenId;
+      if (msg.guestPaletteId) this.p2PaletteId = msg.guestPaletteId;
+      return;
+    }
+
+    if (msg.type === 'SHOT_FIRED') {
+      const penList = msg.team === 1 ? this.pensT1 : this.pensT2;
+      const targetPen = (penList && penList[msg.slotIndex]) ? penList[msg.slotIndex] : penList[0];
+      if (targetPen) {
+        const strikePoint = new Vector2D(msg.strikePoint.x, msg.strikePoint.y);
+        const impulse = new Vector2D(msg.impulse.x, msg.impulse.y);
+        if (msg.strikeOffsetT !== undefined) {
+          this.ui.setStrikeOffsetT(msg.strikeOffsetT);
+        }
+        this.executeShot(targetPen, strikePoint, impulse, msg.powerPercent, true);
+      }
+      return;
+    }
+
+    if (msg.type === 'SYNC_STATE') {
+      this.roundTurnCount = msg.roundTurnCount;
+      this.physics.roundTurnCount = msg.roundTurnCount;
+      if (msg.roundScores) {
+        this.roundScores.player1 = msg.roundScores.player1;
+        this.roundScores.player2 = msg.roundScores.player2;
+      }
+      if (msg.pens && Array.isArray(msg.pens)) {
+        msg.pens.forEach(pData => {
+          const list = pData.team === 1 ? this.pensT1 : this.pensT2;
+          const p = list ? list[pData.slotIndex || 0] : null;
+          if (p) {
+            p.pos.set(pData.x, pData.y);
+            p.angle = pData.angle;
+            p.vel.set(0, 0);
+            p.angVel = 0;
+            p.isDead = pData.isDead;
+            p.isFalling = pData.isFalling;
+          }
+        });
+      }
+      this.updateHUD();
+      return;
+    }
+
+    if (msg.type === 'NEXT_ROUND') {
+      this.nextRound();
+      return;
+    }
+
+    if (msg.type === 'REMATCH') {
+      this.startOnlineMatch(this.mode);
+      return;
+    }
+  }
+
+  handlePeerDisconnect() {
+    if (this.isOnlineMultiplayer()) {
+      alert('Opponent disconnected from the match.');
+      this.showScreen('mainMenuScreen');
+      this.state = 'MENU';
+      this.network.cleanup();
     }
   }
 
@@ -591,6 +843,58 @@ class PenFightGame {
       const el = document.getElementById(id);
       if (el) el.addEventListener('click', fn);
     };
+
+    bindBtn('menuOnlineBtn', () => {
+      this.sound.playClick();
+      this.openMultiplayerModal();
+    });
+
+    bindBtn('tabHostRoom', () => {
+      this.sound.playClick();
+      this.switchMultiplayerTab('host');
+      this.startHostingRoom();
+    });
+
+    bindBtn('tabJoinRoom', () => {
+      this.sound.playClick();
+      this.switchMultiplayerTab('join');
+    });
+
+    bindBtn('closeMultiplayerBtn', () => {
+      this.sound.playClick();
+      this.hideAllModals();
+      this.network.cleanup();
+    });
+
+    bindBtn('copyRoomCodeBtn', () => {
+      const code = this.network.roomCode || '';
+      if (code) {
+        navigator.clipboard.writeText(code);
+        const btn = document.getElementById('copyRoomCodeBtn');
+        if (btn) btn.textContent = 'COPIED!';
+        setTimeout(() => { if (btn) btn.textContent = 'COPY CODE'; }, 1800);
+      }
+    });
+
+    bindBtn('copyInviteLinkBtn', () => {
+      const code = this.network.roomCode || '';
+      if (code) {
+        const link = window.location.origin + window.location.pathname + '?room=' + code;
+        navigator.clipboard.writeText(link);
+        const btn = document.getElementById('copyInviteLinkBtn');
+        if (btn) btn.innerHTML = '<span>LINK COPIED!</span>';
+        setTimeout(() => {
+          if (btn) btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg><span>COPY INVITE LINK</span>';
+        }, 1800);
+      }
+    });
+
+    bindBtn('joinRoomSubmitBtn', () => {
+      this.sound.playClick();
+      const input = document.getElementById('joinRoomCodeInput');
+      const val = input ? input.value : '';
+      this.joinExistingRoom(val);
+    });
 
     bindBtn('menuPlayBtn', () => {
       this.sound.playClick();
@@ -615,20 +919,22 @@ class PenFightGame {
     bindBtn('menuTutorialBtn', () => {
       this.sound.playClick();
       const modal = document.getElementById('tutorialModal');
-      modal.classList.remove('hidden');
-      modal.style.setProperty('display', 'flex', 'important');
+      if (modal) {
+        modal.classList.remove('hidden');
+        modal.style.setProperty('display', 'flex', 'important');
+      }
     });
     bindBtn('menuSettingsBtn', () => {
       this.sound.playClick();
       const modal = document.getElementById('settingsModal');
-      modal.classList.remove('hidden');
-      modal.style.setProperty('display', 'flex', 'important');
+      if (modal) {
+        modal.classList.remove('hidden');
+        modal.style.setProperty('display', 'flex', 'important');
+      }
     });
     bindBtn('menuDebugToggleBtn', () => {
       this.toggleDebugHud();
     });
-
-    
 
     bindBtn('backFromPenSelectBtn', () => {
       this.sound.playClick();
@@ -643,6 +949,7 @@ class PenFightGame {
       this.sound.playClick();
       this.showScreen('mainMenuScreen');
       this.state = 'MENU';
+      if (this.isOnlineMultiplayer()) this.network.cleanup();
     });
     bindBtn('quickRestartBtn', () => {
       this.sound.playClick();
@@ -650,7 +957,8 @@ class PenFightGame {
     });
     bindBtn('quickSoundBtn', () => {
       const isEnabled = this.sound.toggle();
-      document.getElementById('quickSoundBtn').textContent = isEnabled ? 'Sound: ON' : 'Sound: OFF';
+      const sBtn = document.getElementById('quickSoundBtn');
+      if (sBtn) sBtn.textContent = isEnabled ? 'Sound: ON' : 'Sound: OFF';
     });
 
     document.querySelectorAll('.contact-btn').forEach(btn => {
@@ -672,26 +980,23 @@ class PenFightGame {
       this.sound.playClick();
       this.nextRound();
     });
-    const restartModalBtn = document.getElementById('restartMatchModalBtn');
-    if (restartModalBtn) {
-      restartModalBtn.addEventListener('click', () => {
-        this.sound.playClick();
-        this.hideAllModals();
-        this.startMatch(this.mode);
-      });
-    }
-    const knockoutMenuBtn = document.getElementById('knockoutMenuBtn');
-    if (knockoutMenuBtn) {
-      knockoutMenuBtn.addEventListener('click', () => {
-        this.sound.playClick();
-        this.hideAllModals();
-        this.showScreen('mainMenuScreen');
-        this.state = 'MENU';
-      });
-    }
+    bindBtn('restartMatchModalBtn', () => {
+      this.sound.playClick();
+      this.hideAllModals();
+      if (this.mode === 'online_host') this.network.send({ type: 'REMATCH' });
+      this.startMatch(this.mode);
+    });
+    bindBtn('knockoutMenuBtn', () => {
+      this.sound.playClick();
+      this.hideAllModals();
+      this.showScreen('mainMenuScreen');
+      this.state = 'MENU';
+      if (this.isOnlineMultiplayer()) this.network.cleanup();
+    });
 
     bindBtn('victoryRematchBtn', () => {
       this.sound.playClick();
+      if (this.mode === 'online_host') this.network.send({ type: 'REMATCH' });
       this.startMatch(this.mode);
     });
     bindBtn('victoryChangePenBtn', () => {
@@ -702,6 +1007,7 @@ class PenFightGame {
       this.sound.playClick();
       this.showScreen('mainMenuScreen');
       this.state = 'MENU';
+      if (this.isOnlineMultiplayer()) this.network.cleanup();
     });
 
     window.addEventListener('keydown', (e) => {
@@ -748,18 +1054,22 @@ class PenFightGame {
       this.renderPenCards(carousel, equipTarget);
     };
 
-    tabP1.onclick = () => {
-      equipTarget = 'p1';
-      tabP1.classList.add('active');
-      tabP2.classList.remove('active');
-      renderAll();
-    };
-    tabP2.onclick = () => {
-      equipTarget = 'p2';
-      tabP2.classList.add('active');
-      tabP1.classList.remove('active');
-      renderAll();
-    };
+    if (tabP1) {
+      tabP1.onclick = () => {
+        equipTarget = 'p1';
+        tabP1.classList.add('active');
+        if (tabP2) tabP2.classList.remove('active');
+        renderAll();
+      };
+    }
+    if (tabP2) {
+      tabP2.onclick = () => {
+        equipTarget = 'p2';
+        tabP2.classList.add('active');
+        if (tabP1) tabP1.classList.remove('active');
+        renderAll();
+      };
+    }
 
     renderAll();
   }
@@ -787,6 +1097,7 @@ class PenFightGame {
   }
 
   renderPenCards(container, equipTarget) {
+    if (!container) return;
     container.innerHTML = '';
     const currentEquipped = equipTarget === 'p1' ? this.p1PenId : this.p2PenId;
     const currentPalette = PEN_COLOR_PALETTES.find(p => p.id === (equipTarget === 'p1' ? this.p1PaletteId : this.p2PaletteId)) || PEN_COLOR_PALETTES[0];
@@ -798,32 +1109,35 @@ class PenFightGame {
 
       card.innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-          <span class="pen-card-badge">${pen.difficulty}</span>
-          <span style="font-size:11px; font-weight:700; color:var(--p1-cyan);">${pen.sizeCategory || 'Medium'}</span>
+          <span class="pen-card-badge">\${pen.difficulty}</span>
+          <span style="font-size:11px; font-weight:700; color:var(--p1-cyan);">\${pen.sizeCategory || 'Medium'}</span>
         </div>
-        <h3 class="pen-card-title">${pen.name}</h3>
-        <p class="pen-card-tagline">${pen.tagline}</p>
-        <div class="pen-card-preview" style="background: linear-gradient(90deg, ${currentPalette.cap} 20%, ${currentPalette.body} 65%, ${currentPalette.grip} 85%, ${currentPalette.clip} 100%);">
-          <div class="pen-com-indicator" style="left: calc(50% + ${pen.comOffsetRatio * 40}%);"></div>
+        <h3 class="pen-card-title">\${pen.name}</h3>
+        <p class="pen-card-tagline">\${pen.tagline}</p>
+        <div class="pen-card-preview" style="background: linear-gradient(90deg, \${currentPalette.cap} 20%, \${currentPalette.body} 65%, \${currentPalette.grip} 85%, \${currentPalette.clip} 100%);">
+          <div class="pen-com-indicator" style="left: calc(50% + \${pen.comOffsetRatio * 40}%);"></div>
         </div>
         <div class="pen-stats-list">
-          <div class="stat-bar-row"><span class="stat-name">Weight / Mass</span><div class="stat-track"><div class="stat-fill" style="width: ${pen.stats.weight}%;"></div></div><span class="stat-val">${pen.mass}g</span></div>
-          <div class="stat-bar-row"><span class="stat-name">Length / Size</span><div class="stat-track"><div class="stat-fill" style="width: ${(pen.length / 170) * 100}%;"></div></div><span class="stat-val">${pen.length}mm</span></div>
-          <div class="stat-bar-row"><span class="stat-name">Barrel Radius</span><div class="stat-track"><div class="stat-fill" style="width: ${(pen.radius / 15) * 100}%;"></div></div><span class="stat-val">${pen.radius}mm</span></div>
-          <div class="stat-bar-row"><span class="stat-name">Speed / Acceleration</span><div class="stat-track"><div class="stat-fill" style="width: ${pen.stats.speed}%;"></div></div><span class="stat-val">${pen.stats.speed}</span></div>
-          <div class="stat-bar-row"><span class="stat-name">Spin / Hook</span><div class="stat-track"><div class="stat-fill" style="width: ${pen.stats.spin}%;"></div></div><span class="stat-val">${pen.stats.spin}</span></div>
-          <div class="stat-bar-row"><span class="stat-name">Power / Ram</span><div class="stat-track"><div class="stat-fill" style="width: ${pen.stats.power}%;"></div></div><span class="stat-val">${pen.stats.power}</span></div>
+          <div class="stat-bar-row"><span class="stat-name">Weight / Mass</span><div class="stat-track"><div class="stat-fill" style="width: \${pen.stats.weight}%;"></div></div><span class="stat-val">\${pen.mass}g</span></div>
+          <div class="stat-bar-row"><span class="stat-name">Length / Size</span><div class="stat-track"><div class="stat-fill" style="width: \${(pen.length / 170) * 100}%;"></div></div><span class="stat-val">\${pen.length}mm</span></div>
+          <div class="stat-bar-row"><span class="stat-name">Barrel Radius</span><div class="stat-track"><div class="stat-fill" style="width: \${(pen.radius / 15) * 100}%;"></div></div><span class="stat-val">\${pen.radius}mm</span></div>
+          <div class="stat-bar-row"><span class="stat-name">Speed / Acceleration</span><div class="stat-track"><div class="stat-fill" style="width: \${pen.stats.speed}%;"></div></div><span class="stat-val">\${pen.stats.speed}</span></div>
+          <div class="stat-bar-row"><span class="stat-name">Spin / Hook</span><div class="stat-track"><div class="stat-fill" style="width: \${pen.stats.spin}%;"></div></div><span class="stat-val">\${pen.stats.spin}</span></div>
+          <div class="stat-bar-row"><span class="stat-name">Power / Ram</span><div class="stat-track"><div class="stat-fill" style="width: \${pen.stats.power}%;"></div></div><span class="stat-val">\${pen.stats.power}</span></div>
         </div>
-        <p class="pen-card-desc">${pen.description}</p>
-        <button class="equip-pen-btn">${isEquipped ? 'EQUIPPED' : 'EQUIP PEN'}</button>
+        <p class="pen-card-desc">\${pen.description}</p>
+        <button class="equip-pen-btn">\${isEquipped ? 'EQUIPPED' : 'EQUIP PEN'}</button>
       `;
 
-      card.querySelector('.equip-pen-btn').addEventListener('click', () => {
-        this.sound.playClick();
-        if (equipTarget === 'p1') this.p1PenId = pen.id;
-        else this.p2PenId = pen.id;
-        this.renderPenCards(container, equipTarget);
-      });
+      const btn = card.querySelector('.equip-pen-btn');
+      if (btn) {
+        btn.addEventListener('click', () => {
+          this.sound.playClick();
+          if (equipTarget === 'p1') this.p1PenId = pen.id;
+          else this.p2PenId = pen.id;
+          this.renderPenCards(container, equipTarget);
+        });
+      }
 
       container.appendChild(card);
     });
@@ -841,38 +1155,39 @@ class PenFightGame {
       card.className = 'arena-card ' + (isActive ? 'active' : '');
 
       card.innerHTML = `
-        <div class="arena-preview-box" style="background: ${arena.tableTopGrad[0]}; border: 2px solid ${arena.rimColor};">
-          ${arena.name}
+        <div class="arena-preview-box" style="background: \${arena.tableTopGrad[0]}; border: 2px solid \${arena.rimColor};">
+          \${arena.name}
         </div>
-        <div class="arena-name">${arena.name}</div>
-        <p class="arena-desc">${arena.desc}</p>
-        <button class="equip-pen-btn">${isActive ? 'CURRENT ARENA' : 'SELECT ARENA'}</button>
+        <div class="arena-name">\${arena.name}</div>
+        <p class="arena-desc">\${arena.desc}</p>
+        <button class="equip-pen-btn">\${isActive ? 'CURRENT ARENA' : 'SELECT ARENA'}</button>
       `;
 
-      card.querySelector('button').addEventListener('click', () => {
-        this.sound.playClick();
-        this.selectedArenaId = arena.id;
-        this.openArenaSelectScreen();
-      });
+      const btn = card.querySelector('button');
+      if (btn) {
+        btn.addEventListener('click', () => {
+          this.sound.playClick();
+          this.selectedArenaId = arena.id;
+          this.openArenaSelectScreen();
+        });
+      }
 
       grid.appendChild(card);
     });
   }
 
   saveSettings() {
-    
-    const diff = document.getElementById('settingAiDiff').value;
-    const format = parseInt(document.getElementById('settingMatchFormat').value) || 3;
-    const sfxVol = parseInt(document.getElementById('settingSfxVol').value) / 100;
-    const camShake = document.getElementById('settingCameraEffects').checked;
+    const diffEl = document.getElementById('settingAiDiff');
+    const formatEl = document.getElementById('settingMatchFormat');
+    const sfxEl = document.getElementById('settingSfxVol');
+    const camEl = document.getElementById('settingCameraEffects');
+    const teamEl = document.getElementById('settingTeamSize');
 
-    const team = parseInt(document.getElementById('settingTeamSize') ? document.getElementById('settingTeamSize').value : 1) || 1;
-    
-    this.teamSize = team;
-    this.ai.setDifficulty(diff);
-    this.matchFormat = format;
-    this.sound.setVolume(sfxVol);
-    this.cameraEffectsEnabled = camShake;
+    if (diffEl) this.ai.setDifficulty(diffEl.value);
+    if (formatEl) this.matchFormat = parseInt(formatEl.value) || 3;
+    if (sfxEl) this.sound.setVolume(parseInt(sfxEl.value) / 100);
+    if (camEl) this.cameraEffectsEnabled = camEl.checked;
+    if (teamEl) this.teamSize = parseInt(teamEl.value) || 1;
   }
 
   loop(timestamp) {
@@ -888,15 +1203,15 @@ class PenFightGame {
         const arenaCfg = ARENA_CONFIGS[this.selectedArenaId] || ARENA_CONFIGS.classic_desk;
         this.ui.render(this.deskBounds, this.physics.pens, arenaCfg);
 
-        if (this.debugMode && this.penP1 && this.penP2) {
+        if (this.debugMode) {
           const dEl = document.getElementById('debugContent');
           if (dEl) {
             dEl.innerHTML = `
-              FPS: ${Math.round(1 / dt)} | SubSteps: ${this.physics.subSteps}<br>
-              P1 Vel: (${this.penP1.vel.x.toFixed(1)}, ${this.penP1.vel.y.toFixed(1)}) | Ang: ${this.penP1.angVel.toFixed(2)} rad/s<br>
-              P2 Vel: (${this.penP2.vel.x.toFixed(1)}, ${this.penP2.vel.y.toFixed(1)}) | Ang: ${this.penP2.angVel.toFixed(2)} rad/s<br>
-              P1 CoM: ${this.penP1.comOffset.toFixed(1)}px | P2 CoM: ${this.penP2.comOffset.toFixed(1)}px<br>
-              State: ${this.state} | Turn: ${this.currentTurn}
+              FPS: \${Math.round(1 / dt)} | SubSteps: \${this.physics.subSteps}<br>
+              Pens Active: \${this.physics.pens.length} | Team Size: \${this.teamSize}v\${this.teamSize}<br>
+              Turn Team: \${this.currentTurnTeam} | Turn Count: \${this.roundTurnCount}<br>
+              1st Strike Shield: \${this.roundTurnCount <= 2 ? 'ACTIVE' : 'OFF'}<br>
+              Mode: \${this.mode} | State: \${this.state}
             `;
           }
         }
@@ -910,4 +1225,22 @@ class PenFightGame {
 
 window.addEventListener('DOMContentLoaded', () => {
   window.penFightGame = new PenFightGame();
+
+  // Check URL parameter for auto-join
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const roomParam = params.get('room');
+    if (roomParam) {
+      setTimeout(() => {
+        const game = window.penFightGame;
+        if (game) {
+          game.openMultiplayerModal();
+          game.switchMultiplayerTab('join');
+          const input = document.getElementById('joinRoomCodeInput');
+          if (input) input.value = roomParam;
+          game.joinExistingRoom(roomParam);
+        }
+      }, 500);
+    }
+  } catch(e) {}
 });

@@ -1559,3 +1559,190 @@ html, body {
 .pen-dot.active {
   animation: cyanPulse 2s infinite ease-in-out;
 }
+
+
+/* ==========================================================================
+   ONLINE MULTIPLAYER STYLES
+   ========================================================================== */
+.online-multiplayer-btn {
+  background: linear-gradient(135deg, rgba(0, 229, 255, 0.25) 0%, rgba(124, 77, 255, 0.35) 100%) !important;
+  border: 1.5px solid rgba(0, 229, 255, 0.65) !important;
+  box-shadow: 0 0 16px rgba(0, 229, 255, 0.35), inset 0 0 10px rgba(0, 229, 255, 0.15) !important;
+  animation: cyanPulse 2.5s infinite ease-in-out !important;
+  color: #ffffff !important;
+}
+
+.online-multiplayer-btn:hover {
+  transform: translateY(-2px) scale(1.02) !important;
+  box-shadow: 0 0 24px rgba(0, 229, 255, 0.6), inset 0 0 14px rgba(0, 229, 255, 0.3) !important;
+}
+
+.multiplayer-card {
+  max-width: 480px !important;
+  width: 92% !important;
+  background: rgba(14, 18, 26, 0.95) !important;
+  border: 1px solid rgba(0, 229, 255, 0.4) !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.8), 0 0 28px rgba(0, 229, 255, 0.25) !important;
+  padding: 24px !important;
+  border-radius: 16px !important;
+}
+
+.multiplayer-tabs {
+  display: flex;
+  gap: 10px;
+  margin: 18px 0 14px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 10px;
+}
+
+.mp-tab-btn {
+  flex: 1;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+
+.mp-tab-btn.active {
+  background: rgba(0, 229, 255, 0.2);
+  border-color: var(--p1-cyan);
+  color: var(--p1-cyan);
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.25);
+}
+
+.mp-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.mp-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+
+.room-code-display-box {
+  background: rgba(0, 0, 0, 0.45);
+  border: 2px dashed rgba(0, 229, 255, 0.45);
+  border-radius: 12px;
+  padding: 16px;
+  text-align: center;
+  margin: 6px 0;
+}
+
+.room-code-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 1.5px;
+}
+
+.room-code-val {
+  font-family: 'Chakra Petch', monospace;
+  font-size: 34px;
+  font-weight: 800;
+  color: var(--p1-cyan);
+  letter-spacing: 4px;
+  margin-top: 4px;
+  text-shadow: 0 0 16px rgba(0, 229, 255, 0.6);
+}
+
+.mp-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 18px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mp-action-btn.primary-action {
+  flex: 2;
+  background: linear-gradient(135deg, #00e5ff 0%, #00b0ff 100%);
+  border: none;
+  color: #000;
+  box-shadow: 0 4px 14px rgba(0, 229, 255, 0.4);
+}
+
+.mp-action-btn.primary-action:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0, 229, 255, 0.6);
+}
+
+.mp-action-btn.secondary-action {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.mp-action-btn.secondary-action:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.mp-action-btn.full-width {
+  width: 100%;
+}
+
+.mp-status-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+.mp-status-badge.waiting {
+  border: 1px solid rgba(0, 229, 255, 0.25);
+  color: var(--p1-cyan);
+}
+
+.radar-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--p1-cyan);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.mp-text-input {
+  width: 100%;
+  padding: 14px 16px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1.5px solid rgba(0, 229, 255, 0.4);
+  border-radius: 10px;
+  font-family: 'Chakra Petch', monospace;
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 2px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.mp-text-input:focus {
+  outline: none;
+  border-color: var(--p1-cyan);
+  box-shadow: 0 0 16px rgba(0, 229, 255, 0.4);
+}

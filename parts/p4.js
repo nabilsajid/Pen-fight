@@ -201,6 +201,9 @@ class GameUI {
     const handleDown = (pos) => {
       if (this.game.state !== 'AIMING') return;
 
+      // Online turn lock: only allow dragging if it is this local player's turn
+      if (!this.game.isLocalPlayerTurn()) return;
+
       const currentActivePen = this.game.getCurrentActivePen();
       if (!currentActivePen || currentActivePen.owner === 'ai') return;
 
