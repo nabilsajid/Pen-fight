@@ -7,6 +7,12 @@ class NetworkManager {
     this.isConnected = false;
     this.topicIncoming = null;
     this.topicOutgoing = null;
+    this.currentBrokerIndex = 0;
+    this.brokers = [
+      'wss://broker.hivemq.com:8884/mqtt',
+      'wss://broker.emqx.io:8084/mqtt',
+      'wss://test.mosquitto.org:8081/mqtt'
+    ];
   }
 
   generateRoomCode() {
@@ -18,25 +24,26 @@ class NetworkManager {
     return code;
   }
 
-  initHost(onRoomReady, onGuestConnected, onData, onError) {
+  initHost(onRoomReady, onData, onError) {
     this.cleanup();
     this.isHost = true;
     const rawCode = this.generateRoomCode();
     this.roomCode = 'PEN-' + rawCode;
 
-    this.topicIncoming = 'penfight/v5/' + rawCode.toLowerCase() + '/guest_to_host';
-    this.topicOutgoing = 'penfight/v5/' + rawCode.toLowerCase() + '/host_to_guest';
+    this.topicIncoming = 'penfight/v7/' + rawCode.toLowerCase() + '/g2h';
+    this.topicOutgoing = 'penfight/v7/' + rawCode.toLowerCase() + '/h2g';
 
-    this.connectMqtt(() => {
-      this.client.subscribe(this.topicIncoming, (err) => {
+    this.connectBroker(() => {
+      this.client.subscribe(this.topicIncoming, { qos: 0 }, (err) => {
         if (err) {
-          if (onError) onError('Could not subscribe to room.');
+          console.error('[Host] Subscribe error:', err);
+          if (onError) onError('Could not register room. Retrying...');
           return;
         }
-        console.log('[Host] Room open and ready:', this.roomCode);
+        console.log('[Host] Room open on topic:', this.topicIncoming);
         if (onRoomReady) onRoomReady(this.roomCode);
       });
-    }, onGuestConnected, onData, onError);
+    }, onData, onError);
   }
 
   joinRoom(inputCode, onConnected, onData, onError) {
@@ -49,73 +56,84 @@ class NetworkManager {
     }
     this.roomCode = 'PEN-' + cleanCode;
 
-    this.topicIncoming = 'penfight/v5/' + cleanCode.toLowerCase() + '/host_to_guest';
-    this.topicOutgoing = 'penfight/v5/' + cleanCode.toLowerCase() + '/guest_to_host';
+    this.topicIncoming = 'penfight/v7/' + cleanCode.toLowerCase() + '/h2g';
+    this.topicOutgoing = 'penfight/v7/' + cleanCode.toLowerCase() + '/g2h';
 
-    this.connectMqtt(() => {
-      this.client.subscribe(this.topicIncoming, (err) => {
+    this.connectBroker(() => {
+      this.client.subscribe(this.topicIncoming, { qos: 0 }, (err) => {
         if (err) {
-          if (onError) onError('Could not join room.');
+          console.error('[Guest] Subscribe error:', err);
+          if (onError) onError('Could not connect to room. Retrying...');
           return;
         }
-        console.log('[Guest] Joined room topic:', this.roomCode);
+        console.log('[Guest] Subscribed to host topic:', this.topicIncoming);
         this.isConnected = true;
         if (onConnected) onConnected('guest');
 
-        // Announce presence to Host
-        this.send({
-          type: 'GUEST_JOINED',
-          guestPenId: this.game.p2PenId,
-          guestPaletteId: this.game.p2PaletteId
-        });
+        // Announce presence to Host with repeating broadcast until Host responds
+        const announceTimer = setInterval(() => {
+          if (this.game.mode === 'online_guest') {
+            clearInterval(announceTimer);
+            return;
+          }
+          this.send({
+            type: 'GUEST_JOINED',
+            guestPenId: this.game.p2PenId,
+            guestPaletteId: this.game.p2PaletteId
+          });
+        }, 600);
+
+        // Clear timer after 15s
+        setTimeout(() => clearInterval(announceTimer), 15000);
       });
-    }, onConnected, onData, onError);
+    }, onData, onError);
   }
 
-  connectMqtt(onSubscribed, onConnectedCallback, onData, onError) {
-    if (typeof mqtt === 'undefined') {
-      if (onError) onError('Multiplayer service loading, please tap again in a second.');
+  connectBroker(onSubscribed, onData, onError) {
+    const mqttLib = window.mqtt || (typeof mqtt !== 'undefined' ? mqtt : null);
+    if (!mqttLib) {
+      if (onError) onError('Loading multiplayer engine, please tap again in a moment...');
       return;
     }
 
     try {
-      const brokerUrl = 'wss://broker.emqx.io:8084/mqtt';
-      const clientId = 'pf_' + (this.isHost ? 'h_' : 'g_') + Math.random().toString(16).substring(2, 9);
+      const brokerUrl = this.brokers[this.currentBrokerIndex % this.brokers.length];
+      const clientId = 'pf7_' + (this.isHost ? 'h_' : 'g_') + Math.random().toString(16).substring(2, 9);
+      console.log('[Network] Connecting to broker:', brokerUrl);
 
-      this.client = mqtt.connect(brokerUrl, {
+      this.client = mqttLib.connect(brokerUrl, {
         clientId: clientId,
         clean: true,
-        connectTimeout: 7000,
-        reconnectPeriod: 2500,
+        connectTimeout: 8000,
+        reconnectPeriod: 3000,
         keepalive: 30
       });
 
       this.client.on('connect', () => {
-        console.log('[Network] Connected to real-time relay broker!');
+        console.log('[Network] Connected to broker successfully!');
         if (onSubscribed) onSubscribed();
       });
 
       this.client.on('message', (topic, payload) => {
         try {
-          const data = JSON.parse(payload.toString());
-          if (data) {
-            if (this.isHost && !this.isConnected && data.type === 'GUEST_JOINED') {
-              this.isConnected = true;
-              if (onConnectedCallback) onConnectedCallback('host');
-            }
-            if (onData) onData(data);
+          const str = payload.toString();
+          const data = JSON.parse(str);
+          if (data && onData) {
+            onData(data);
           }
         } catch (e) {
-          console.error('[Network] JSON parse error:', e);
+          console.error('[Network] Parse error:', e);
         }
       });
 
       this.client.on('error', (err) => {
-        console.error('[Network] Relay error:', err);
-        if (onError) onError(err.message || 'Connection error');
+        console.warn('[Network] Broker warning:', err);
+        // Non-fatal: try backup broker
+        this.currentBrokerIndex++;
       });
     } catch (e) {
-      if (onError) onError(e.message);
+      console.error('[Network] Connect error:', e);
+      if (onError) onError('Connection error. Please check your internet connection.');
     }
   }
 
@@ -124,7 +142,7 @@ class NetworkManager {
       try {
         this.client.publish(this.topicOutgoing, JSON.stringify(data), { qos: 0 });
       } catch (err) {
-        console.error('[Network] Send failed:', err);
+        console.error('[Network] Send error:', err);
       }
     }
   }

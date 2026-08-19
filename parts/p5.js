@@ -707,7 +707,8 @@ class PenFightGame {
         this.handleRemoteData(data);
       },
       (err) => {
-        if (statusText) statusText.textContent = 'Error: ' + err;
+        const msg = (err && err.message) ? err.message : (typeof err === 'string' ? err : 'Reconnecting...');
+        if (statusText) statusText.textContent = msg;
       }
     );
   }
@@ -728,8 +729,9 @@ class PenFightGame {
         this.handleRemoteData(data);
       },
       (err) => {
+        const msg = (err && err.message) ? err.message : (typeof err === 'string' ? err : 'Could not connect. Retrying...');
         if (statusBadge) statusBadge.classList.remove('hidden');
-        if (statusText) statusText.textContent = 'Failed to connect: ' + err;
+        if (statusText) statusText.textContent = msg;
       }
     );
   }
