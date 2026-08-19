@@ -351,6 +351,7 @@ class PenFightGame {
       if (!isSettled) return;
     }
 
+    // Individual 2-shot shield protection
     if (this.roundTurnCount <= 2) {
       const opponentPens = (this.currentTurnTeam === 1) ? this.pensT2 : this.pensT1;
       for (const p of opponentPens) {
@@ -395,37 +396,7 @@ class PenFightGame {
       return;
     }
 
-    // If host in online multiplayer, broadcast relative authoritative state sync
-    if (this.mode === 'online_host') {
-      const desk = this.deskBounds;
-      const penSync = [];
-      this.pensT1.forEach((p, idx) => penSync.push({
-        team: 1,
-        slotIndex: idx,
-        relX: (p.pos.x - desk.x) / desk.width,
-        relY: (p.pos.y - desk.y) / desk.height,
-        angle: p.angle,
-        isDead: p.isDead,
-        isFalling: p.isFalling
-      }));
-      this.pensT2.forEach((p, idx) => penSync.push({
-        team: 2,
-        slotIndex: idx,
-        relX: (p.pos.x - desk.x) / desk.width,
-        relY: (p.pos.y - desk.y) / desk.height,
-        angle: p.angle,
-        isDead: p.isDead,
-        isFalling: p.isFalling
-      }));
-      this.network.send({
-        type: 'SYNC_STATE',
-        roundTurnCount: this.roundTurnCount,
-        currentTurnTeam: this.currentTurnTeam,
-        roundScores: this.roundScores,
-        pens: penSync
-      });
-    }
-
+    // Switch turn
     this.switchTurn();
   }
 
@@ -452,6 +423,39 @@ class PenFightGame {
 
     this.sound.playTurn();
     this.updateHUD();
+
+    // If host in online multiplayer, broadcast new turn state & authoritative pen positions
+    if (this.mode === 'online_host') {
+      const desk = this.deskBounds;
+      const penSync = [];
+      this.pensT1.forEach((p, idx) => penSync.push({
+        team: 1,
+        slotIndex: idx,
+        relX: (p.pos.x - desk.x) / desk.width,
+        relY: (p.pos.y - desk.y) / desk.height,
+        angle: p.angle,
+        isDead: p.isDead,
+        isFalling: p.isFalling
+      }));
+      this.pensT2.forEach((p, idx) => penSync.push({
+        team: 2,
+        slotIndex: idx,
+        relX: (p.pos.x - desk.x) / desk.width,
+        relY: (p.pos.y - desk.y) / desk.height,
+        angle: p.angle,
+        isDead: p.isDead,
+        isFalling: p.isFalling
+      }));
+      this.network.send({
+        type: 'TURN_SWITCH',
+        currentTurnTeam: this.currentTurnTeam,
+        activeSlotT1: this.activeSlotT1,
+        activeSlotT2: this.activeSlotT2,
+        roundTurnCount: this.roundTurnCount,
+        roundScores: this.roundScores,
+        pens: penSync
+      });
+    }
 
     if (this.currentTurnTeam === 2 && this.mode === 'vs_ai') {
       this.handleAiTurn();
@@ -816,13 +820,15 @@ class PenFightGame {
       return;
     }
 
-    if (msg.type === 'SYNC_STATE') {
+    if (msg.type === 'TURN_SWITCH') {
       const desk = this.deskBounds;
+      this.state = 'AIMING';
+      this.currentTurnTeam = msg.currentTurnTeam;
+      this.activeSlotT1 = msg.activeSlotT1 || 0;
+      this.activeSlotT2 = msg.activeSlotT2 || 0;
       this.roundTurnCount = msg.roundTurnCount;
       this.physics.roundTurnCount = msg.roundTurnCount;
-      if (msg.currentTurnTeam !== undefined) {
-        this.currentTurnTeam = msg.currentTurnTeam;
-      }
+
       if (msg.roundScores) {
         this.roundScores.player1 = msg.roundScores.player1;
         this.roundScores.player2 = msg.roundScores.player2;
@@ -842,6 +848,7 @@ class PenFightGame {
           }
         });
       }
+      this.sound.playTurn();
       this.updateHUD();
       return;
     }
