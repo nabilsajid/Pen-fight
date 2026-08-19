@@ -295,16 +295,21 @@ class PenFightGame {
     pen.applyImpulse(impulse, strikePoint);
     this.ui.addSparkParticles(strikePoint.x, strikePoint.y, 18, pen.owner === 'player1' ? '#00e5ff' : '#ff3d00');
 
-    // Broadcast shot to opponent if this was a local flick
+    // Broadcast resolution-independent shot packet to opponent if local
     if (!isRemote && this.isOnlineMultiplayer()) {
+      const desk = this.deskBounds;
       this.network.send({
         type: 'SHOT_FIRED',
         team: pen.team,
         slotIndex: pen.slotIndex || 0,
-        strikePoint: { x: strikePoint.x, y: strikePoint.y },
-        impulse: { x: impulse.x, y: impulse.y },
+        aimAngle: impulse.heading(),
         powerPercent: powerPercent,
-        strikeOffsetT: this.ui.strikeOffsetT
+        strikeOffsetT: this.ui.strikeOffsetT,
+        relPos: {
+          x: (pen.pos.x - desk.x) / desk.width,
+          y: (pen.pos.y - desk.y) / desk.height
+        },
+        penAngle: pen.angle
       });
     }
 
@@ -390,14 +395,32 @@ class PenFightGame {
       return;
     }
 
-    // If host in online multiplayer, broadcast authoritative state sync to prevent desync
+    // If host in online multiplayer, broadcast relative authoritative state sync
     if (this.mode === 'online_host') {
+      const desk = this.deskBounds;
       const penSync = [];
-      this.pensT1.forEach((p, idx) => penSync.push({ team: 1, slotIndex: idx, x: p.pos.x, y: p.pos.y, angle: p.angle, isDead: p.isDead, isFalling: p.isFalling }));
-      this.pensT2.forEach((p, idx) => penSync.push({ team: 2, slotIndex: idx, x: p.pos.x, y: p.pos.y, angle: p.angle, isDead: p.isDead, isFalling: p.isFalling }));
+      this.pensT1.forEach((p, idx) => penSync.push({
+        team: 1,
+        slotIndex: idx,
+        relX: (p.pos.x - desk.x) / desk.width,
+        relY: (p.pos.y - desk.y) / desk.height,
+        angle: p.angle,
+        isDead: p.isDead,
+        isFalling: p.isFalling
+      }));
+      this.pensT2.forEach((p, idx) => penSync.push({
+        team: 2,
+        slotIndex: idx,
+        relX: (p.pos.x - desk.x) / desk.width,
+        relY: (p.pos.y - desk.y) / desk.height,
+        angle: p.angle,
+        isDead: p.isDead,
+        isFalling: p.isFalling
+      }));
       this.network.send({
         type: 'SYNC_STATE',
         roundTurnCount: this.roundTurnCount,
+        currentTurnTeam: this.currentTurnTeam,
         roundScores: this.roundScores,
         pens: penSync
       });
@@ -673,33 +696,12 @@ class PenFightGame {
     const codeEl = document.getElementById('hostRoomCodeVal');
     const statusText = document.getElementById('hostStatusText');
     if (codeEl) codeEl.textContent = 'CONNECTING...';
-    if (statusText) statusText.textContent = 'Generating secure room...';
+    if (statusText) statusText.textContent = 'Opening secure room channel...';
 
     this.network.initHost(
       (roomCode) => {
         if (codeEl) codeEl.textContent = roomCode;
         if (statusText) statusText.textContent = 'Waiting for Player 2 to join...';
-      },
-      (role) => {
-        // Guest connected!
-        if (statusText) statusText.textContent = 'Player 2 connected! Preparing match...';
-        this.sound.playVictory();
-
-        // Host sends init packet with game parameters
-        setTimeout(() => {
-          this.matchStartingTeam = Math.random() < 0.5 ? 1 : 2;
-          this.network.send({
-            type: 'START_MATCH',
-            hostPenId: this.p1PenId,
-            hostPaletteId: this.p1PaletteId,
-            arenaId: this.selectedArenaId,
-            matchFormat: this.matchFormat,
-            teamSize: this.teamSize,
-            matchStartingTeam: this.matchStartingTeam
-          });
-          this.hideAllModals();
-          this.startOnlineMatch('online_host');
-        }, 500);
       },
       (data) => {
         this.handleRemoteData(data);
@@ -719,13 +721,8 @@ class PenFightGame {
     this.network.joinRoom(
       roomCode,
       (role) => {
-        if (statusText) statusText.textContent = 'Connected! Waiting for host to start...';
+        if (statusText) statusText.textContent = 'Connected! Entering match...';
         this.sound.playVictory();
-        this.network.send({
-          type: 'GUEST_JOINED',
-          guestPenId: this.p2PenId,
-          guestPaletteId: this.p2PaletteId
-        });
       },
       (data) => {
         this.handleRemoteData(data);
@@ -760,26 +757,13 @@ class PenFightGame {
   handleRemoteData(msg) {
     if (!msg || !msg.type) return;
 
-    if (msg.type === 'START_MATCH') {
-      this.p1PenId = msg.hostPenId || this.p1PenId;
-      this.p1PaletteId = msg.hostPaletteId || this.p1PaletteId;
-      this.selectedArenaId = msg.arenaId || this.selectedArenaId;
-      this.matchFormat = msg.matchFormat || 3;
-      this.teamSize = msg.teamSize || 1;
-      this.matchStartingTeam = msg.matchStartingTeam || 1;
-
-      this.network.send({ type: 'START_MATCH_ACK' });
-
-      this.hideAllModals();
-      this.startOnlineMatch('online_guest');
-      return;
-    }
-
     if (msg.type === 'GUEST_JOINED') {
       if (msg.guestPenId) this.p2PenId = msg.guestPenId;
       if (msg.guestPaletteId) this.p2PaletteId = msg.guestPaletteId;
 
+      this.sound.playVictory();
       this.matchStartingTeam = Math.random() < 0.5 ? 1 : 2;
+
       this.network.send({
         type: 'START_MATCH',
         hostPenId: this.p1PenId,
@@ -789,28 +773,54 @@ class PenFightGame {
         teamSize: this.teamSize,
         matchStartingTeam: this.matchStartingTeam
       });
+
       this.hideAllModals();
       this.startOnlineMatch('online_host');
       return;
     }
 
+    if (msg.type === 'START_MATCH') {
+      this.p1PenId = msg.hostPenId || this.p1PenId;
+      this.p1PaletteId = msg.hostPaletteId || this.p1PaletteId;
+      this.selectedArenaId = msg.arenaId || this.selectedArenaId;
+      this.matchFormat = msg.matchFormat || 3;
+      this.teamSize = msg.teamSize || 1;
+      this.matchStartingTeam = msg.matchStartingTeam || 1;
+
+      this.hideAllModals();
+      this.startOnlineMatch('online_guest');
+      return;
+    }
+
     if (msg.type === 'SHOT_FIRED') {
       const penList = msg.team === 1 ? this.pensT1 : this.pensT2;
-      const targetPen = (penList && penList[msg.slotIndex]) ? penList[msg.slotIndex] : penList[0];
+      const targetPen = (penList && penList[msg.slotIndex]) ? penList[msg.slotIndex] : (penList ? penList[0] : null);
       if (targetPen) {
-        const strikePoint = new Vector2D(msg.strikePoint.x, msg.strikePoint.y);
-        const impulse = new Vector2D(msg.impulse.x, msg.impulse.y);
-        if (msg.strikeOffsetT !== undefined) {
-          this.ui.setStrikeOffsetT(msg.strikeOffsetT);
+        // Align relative desk coordinates
+        const desk = this.deskBounds;
+        if (msg.relPos) {
+          targetPen.pos.x = desk.x + msg.relPos.x * desk.width;
+          targetPen.pos.y = desk.y + msg.relPos.y * desk.height;
         }
+        if (msg.penAngle !== undefined) {
+          targetPen.angle = msg.penAngle;
+        }
+
+        const strikePoint = targetPen.getPointAlongAxis(msg.strikeOffsetT !== undefined ? msg.strikeOffsetT : 0);
+        const impulse = Vector2D.fromAngle(msg.aimAngle).mult((msg.powerPercent / 100) * targetPen.mass * 1350);
+
         this.executeShot(targetPen, strikePoint, impulse, msg.powerPercent, true);
       }
       return;
     }
 
     if (msg.type === 'SYNC_STATE') {
+      const desk = this.deskBounds;
       this.roundTurnCount = msg.roundTurnCount;
       this.physics.roundTurnCount = msg.roundTurnCount;
+      if (msg.currentTurnTeam !== undefined) {
+        this.currentTurnTeam = msg.currentTurnTeam;
+      }
       if (msg.roundScores) {
         this.roundScores.player1 = msg.roundScores.player1;
         this.roundScores.player2 = msg.roundScores.player2;
@@ -820,7 +830,8 @@ class PenFightGame {
           const list = pData.team === 1 ? this.pensT1 : this.pensT2;
           const p = list ? list[pData.slotIndex || 0] : null;
           if (p) {
-            p.pos.set(pData.x, pData.y);
+            p.pos.x = desk.x + pData.relX * desk.width;
+            p.pos.y = desk.y + pData.relY * desk.height;
             p.angle = pData.angle;
             p.vel.set(0, 0);
             p.angVel = 0;
@@ -846,7 +857,7 @@ class PenFightGame {
 
   handlePeerDisconnect() {
     if (this.isOnlineMultiplayer()) {
-      alert('Opponent disconnected from the match.');
+      alert('Opponent left or disconnected.');
       this.showScreen('mainMenuScreen');
       this.state = 'MENU';
       this.network.cleanup();
