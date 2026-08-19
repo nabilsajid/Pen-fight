@@ -1166,9 +1166,27 @@ class GameUI {
       if (clickDist < currentActivePen.length * 0.85 + 50) {
         this.isDragging = true;
         this.selectedPen = currentActivePen;
-        this.dragStartPos = pos;
+
+        // Dynamically compute exact strike contact point from cursor click along pen axis:
+        const axisDir = Vector2D.fromAngle(currentActivePen.angle);
+        const clickVec = Vector2D.sub(pos, currentActivePen.pos);
+        const distAlongAxis = clickVec.dot(axisDir);
+        const halfLength = currentActivePen.length * 0.5;
+        this.strikeOffsetT = Math.max(-0.85, Math.min(0.85, distAlongAxis / halfLength));
+
+        const exactStrikePoint = currentActivePen.getPointAlongAxis(this.strikeOffsetT);
+        this.dragStartPos = exactStrikePoint;
         this.dragCurrentPos = pos;
         this.game.sound.init();
+
+        document.querySelectorAll('.contact-btn').forEach(btn => {
+          const btnT = parseFloat(btn.dataset.t);
+          if (Math.abs(btnT - this.strikeOffsetT) < 0.4) {
+            btn.classList.add('active');
+          } else {
+            btn.classList.remove('active');
+          }
+        });
       }
     };
 
@@ -1658,12 +1676,7 @@ class GameUI {
 
     this.drawDesk(desk, arenaCfg || {});
 
-    if (this.game.state === 'AIMING') {
-      const activePen = this.game.getCurrentActivePen();
-      if (activePen) {
-        this.drawActivePenHalo(activePen);
-      }
-    }
+    // Active pen outline removed per user request for clean aesthetic
 
     for (const pen of pens) {
       const isCurrentActive = this.game.getCurrentActivePen() === pen;
