@@ -1148,8 +1148,17 @@ class GameUI {
 
     const getPos = (e) => {
       const rect = this.canvas.getBoundingClientRect();
-      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      let clientX, clientY;
+      if (e.touches && e.touches.length > 0) {
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+      } else if (e.changedTouches && e.changedTouches.length > 0) {
+        clientX = e.changedTouches[0].clientX;
+        clientY = e.changedTouches[0].clientY;
+      } else {
+        clientX = e.clientX;
+        clientY = e.clientY;
+      }
       return new Vector2D(
         (clientX - rect.left) * (this.canvas.width / rect.width),
         (clientY - rect.top) * (this.canvas.height / rect.height)
@@ -1165,8 +1174,12 @@ class GameUI {
       const currentActivePen = this.game.getCurrentActivePen();
       if (!currentActivePen || currentActivePen.owner === 'ai') return;
 
+      // Generous grab radius for touchscreen thumbs and mouse precision
       const clickDist = pos.dist(currentActivePen.pos);
-      if (clickDist < currentActivePen.length * 0.85 + 50) {
+      const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+      const grabThreshold = currentActivePen.length * 1.1 + (isTouch ? 85 : 55);
+
+      if (clickDist < grabThreshold) {
         this.isDragging = true;
         this.selectedPen = currentActivePen;
 
@@ -1234,9 +1247,20 @@ class GameUI {
     window.addEventListener('mousemove', (e) => { if (this.isDragging) handleMove(getPos(e)); });
     window.addEventListener('mouseup', () => handleUp());
 
-    this.canvas.addEventListener('touchstart', (e) => { e.preventDefault(); handleDown(getPos(e)); }, { passive: false });
-    window.addEventListener('touchmove', (e) => { if (this.isDragging) { e.preventDefault(); handleMove(getPos(e)); } }, { passive: false });
+    this.canvas.addEventListener('touchstart', (e) => {
+      if (e.cancelable) e.preventDefault();
+      handleDown(getPos(e));
+    }, { passive: false });
+
+    window.addEventListener('touchmove', (e) => {
+      if (this.isDragging) {
+        if (e.cancelable) e.preventDefault();
+        handleMove(getPos(e));
+      }
+    }, { passive: false });
+
     window.addEventListener('touchend', () => handleUp());
+    window.addEventListener('touchcancel', () => handleUp());
   }
 
   setStrikeOffsetT(t) {
@@ -1344,8 +1368,10 @@ class GameUI {
     ctx.fillText('E = mc²', 30, 45);
     ctx.fillText('F = m · a', 140, 45);
     ctx.fillText('v = u + at', 260, 45);
-    ctx.fillText('τ = r × F', width - 200, 45);
-    ctx.fillText('θ = ω · t', width - 100, 45);
+    if (width > 600) {
+      ctx.fillText('τ = r × F', width - 200, 45);
+      ctx.fillText('θ = ω · t', width - 100, 45);
+    }
 
     const sunBeam = ctx.createLinearGradient(0, 0, width, height);
     sunBeam.addColorStop(0, 'rgba(255, 220, 150, 0.04)');
@@ -1409,10 +1435,15 @@ class GameUI {
     ctx.fillStyle = 'rgba(70, 35, 10, 0.08)';
     ctx.fill();
 
-    // 5. SCHOOL PROPS: Taped Notebook Paper, 30cm School Ruler, Pink Eraser & Doodles
-    this.drawNotebookPaper(ctx, playX + 28, playY + 24, 155, 105);
-    this.drawSchoolRuler(ctx, playX + playW * 0.38, playY + playH - 24, 210, 16);
-    this.drawPinkEraser(ctx, playX + playW - 85, playY + 28, 48, 22);
+    // 5. SCHOOL PROPS: Adaptive for screen widths
+    if (playW > 520) {
+      this.drawNotebookPaper(ctx, playX + 28, playY + 24, 155, 105);
+      this.drawSchoolRuler(ctx, playX + playW * 0.38, playY + playH - 24, 210, 16);
+      this.drawPinkEraser(ctx, playX + playW - 85, playY + 28, 48, 22);
+    } else {
+      this.drawSchoolRuler(ctx, playX + 20, playY + playH - 20, 140, 14);
+      this.drawPinkEraser(ctx, playX + playW - 60, playY + 16, 38, 18);
+    }
     this.drawDeskDoodles(ctx, playX, playY, playW, playH);
 
     ctx.beginPath();
@@ -1424,7 +1455,7 @@ class GameUI {
     ctx.stroke();
 
     ctx.beginPath();
-    ctx.arc(playX + playW * 0.5, playY + playH * 0.5, 65, 0, Math.PI * 2);
+    ctx.arc(playX + playW * 0.5, playY + playH * 0.5, Math.min(65, playW * 0.15), 0, Math.PI * 2);
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.20)';
     ctx.stroke();
     ctx.setLineDash([]);
@@ -1564,12 +1595,14 @@ class GameUI {
     ctx.fillStyle = 'rgba(50, 30, 10, 0.45)';
     ctx.font = 'bold 13px sans-serif';
 
-    ctx.strokeRect(x + w - 110, y + h - 55, 42, 26);
-    ctx.fillText('VS', x + w - 96, y + h - 38);
+    if (w > 400) {
+      ctx.strokeRect(x + w - 110, y + h - 55, 42, 26);
+      ctx.fillText('VS', x + w - 96, y + h - 38);
 
-    ctx.beginPath();
-    ctx.arc(x + 130, y + h - 45, 18, 0, Math.PI * 2);
-    ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x + 130, y + h - 45, 18, 0, Math.PI * 2);
+      ctx.stroke();
+    }
 
     ctx.font = '9px monospace';
     ctx.fillText('P1 WAS HERE ✏️', x + 35, y + h - 16);
@@ -1776,12 +1809,12 @@ class PenFightGame {
   setupCanvasSize() {
     const container = document.getElementById('gameCanvasArea');
     const rect = container ? container.getBoundingClientRect() : null;
-    const w = (rect && rect.width > 100) ? rect.width : window.innerWidth;
-    const h = (rect && rect.height > 100) ? rect.height : (window.innerHeight - 130);
+    const w = (rect && rect.width > 50) ? rect.width : window.innerWidth;
+    const h = (rect && rect.height > 50) ? rect.height : (window.innerHeight - 120);
 
     if (this.canvas) {
-      this.canvas.width = Math.max(640, Math.floor(w));
-      this.canvas.height = Math.max(480, Math.floor(h));
+      this.canvas.width = Math.max(360, Math.floor(w));
+      this.canvas.height = Math.max(360, Math.floor(h));
     }
   }
 
@@ -1789,8 +1822,27 @@ class PenFightGame {
     if (!this.canvas) return;
     const w = this.canvas.width;
     const h = this.canvas.height;
-    const deskW = Math.min(940, Math.max(560, w * 0.84));
-    const deskH = Math.min(560, Math.max(380, h * 0.80));
+
+    let deskW, deskH;
+    if (w < 600) {
+      // Mobile Phone
+      if (h > w) {
+        deskW = Math.min(w * 0.92, 540);
+        deskH = Math.min(h * 0.72, 460);
+      } else {
+        deskW = Math.min(w * 0.86, 780);
+        deskH = Math.min(h * 0.78, 440);
+      }
+    } else if (w <= 1024) {
+      // Tablet / iPad
+      deskW = Math.min(w * 0.88, 860);
+      deskH = Math.min(h * 0.78, 520);
+    } else {
+      // Desktop / Laptop
+      deskW = Math.min(940, Math.max(560, w * 0.84));
+      deskH = Math.min(560, Math.max(380, h * 0.80));
+    }
+
     const deskX = (w - deskW) * 0.5;
     const deskY = (h - deskH) * 0.5;
 

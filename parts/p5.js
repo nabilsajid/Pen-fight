@@ -74,12 +74,12 @@ class PenFightGame {
   setupCanvasSize() {
     const container = document.getElementById('gameCanvasArea');
     const rect = container ? container.getBoundingClientRect() : null;
-    const w = (rect && rect.width > 100) ? rect.width : window.innerWidth;
-    const h = (rect && rect.height > 100) ? rect.height : (window.innerHeight - 130);
+    const w = (rect && rect.width > 50) ? rect.width : window.innerWidth;
+    const h = (rect && rect.height > 50) ? rect.height : (window.innerHeight - 120);
 
     if (this.canvas) {
-      this.canvas.width = Math.max(640, Math.floor(w));
-      this.canvas.height = Math.max(480, Math.floor(h));
+      this.canvas.width = Math.max(360, Math.floor(w));
+      this.canvas.height = Math.max(360, Math.floor(h));
     }
   }
 
@@ -87,8 +87,27 @@ class PenFightGame {
     if (!this.canvas) return;
     const w = this.canvas.width;
     const h = this.canvas.height;
-    const deskW = Math.min(940, Math.max(560, w * 0.84));
-    const deskH = Math.min(560, Math.max(380, h * 0.80));
+
+    let deskW, deskH;
+    if (w < 600) {
+      // Mobile Phone
+      if (h > w) {
+        deskW = Math.min(w * 0.92, 540);
+        deskH = Math.min(h * 0.72, 460);
+      } else {
+        deskW = Math.min(w * 0.86, 780);
+        deskH = Math.min(h * 0.78, 440);
+      }
+    } else if (w <= 1024) {
+      // Tablet / iPad
+      deskW = Math.min(w * 0.88, 860);
+      deskH = Math.min(h * 0.78, 520);
+    } else {
+      // Desktop / Laptop
+      deskW = Math.min(940, Math.max(560, w * 0.84));
+      deskH = Math.min(560, Math.max(380, h * 0.80));
+    }
+
     const deskX = (w - deskW) * 0.5;
     const deskY = (h - deskH) * 0.5;
 
