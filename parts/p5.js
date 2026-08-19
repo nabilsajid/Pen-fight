@@ -21,6 +21,10 @@ class PenFightGame {
     this.matchStartingTeam = 1;
     this.lastShotOwner = 'player1';
 
+    // Player Names
+    this.p1Name = localStorage.getItem('penfight_p1_name') || 'Player 1';
+    this.p2Name = localStorage.getItem('penfight_p2_name') || 'Player 2';
+
     this.matchFormat = 3;
     this.targetScore = 2;
     this.currentRound = 1;
@@ -408,22 +412,22 @@ class PenFightGame {
     }
 
     if (aliveT1 === 0) {
-      const winner = (this.mode === 'vs_ai') ? 'AI BOT' : (this.mode === 'online_guest' ? 'YOU (PLAYER 2)' : 'PLAYER 2');
+      const winnerName = (this.mode === 'vs_ai') ? 'AI BOT' : this.p2Name;
       const isSelf = (this.lastShotOwner === 'player1');
       if (this.mode === 'online_host') {
-        this.network.send({ type: 'ROUND_OVER', winner: 'PLAYER 2', isSelf: isSelf });
+        this.network.send({ type: 'ROUND_OVER', winnerName: this.p2Name, winningTeam: 2, isSelf: isSelf });
       }
-      this.handleRoundEnd(winner, isSelf);
+      this.handleRoundEnd(winnerName, 2, isSelf);
       return;
     }
 
     if (aliveT2 === 0) {
-      const winner = (this.mode === 'online_host' ? 'YOU (PLAYER 1)' : 'PLAYER 1');
+      const winnerName = this.p1Name;
       const isSelf = (this.lastShotOwner !== 'player1');
       if (this.mode === 'online_host') {
-        this.network.send({ type: 'ROUND_OVER', winner: 'PLAYER 1', isSelf: isSelf });
+        this.network.send({ type: 'ROUND_OVER', winnerName: this.p1Name, winningTeam: 1, isSelf: isSelf });
       }
-      this.handleRoundEnd(winner, isSelf);
+      this.handleRoundEnd(winnerName, 1, isSelf);
       return;
     }
 
@@ -493,18 +497,27 @@ class PenFightGame {
     }
   }
 
-  handleRoundEnd(winner, isSelfKnockout = false) {
+  handleRoundEnd(winnerName, winningTeam, isSelfKnockout = false) {
     this.state = 'ROUND_OVER';
     this.matchStats.knockouts++;
 
-    if (winner.includes('PLAYER 1')) {
+    if (winningTeam === 1) {
       this.roundScores.player1++;
-      this.sound.playVictory();
-    } else if (winner.includes('PLAYER 2')) {
-      this.roundScores.player2++;
+    } else {
+      if (this.mode === 'vs_ai') this.roundScores.ai++;
+      else this.roundScores.player2++;
+    }
+
+    // Audio: Play Victory if local player won, Defeat if local player lost
+    const isLocalWinner = (this.mode === 'online_host' && winningTeam === 1) ||
+                          (this.mode === 'online_guest' && winningTeam === 2) ||
+                          (this.mode === 'vs_ai' && winningTeam === 1) ||
+                          (this.mode === 'pvp' || this.mode === 'practice');
+
+    if (isLocalWinner) {
       this.sound.playVictory();
     } else {
-      this.roundScores.ai++;
+      this.sound.playDefeat();
     }
 
     this.updateHUD();
@@ -514,7 +527,7 @@ class PenFightGame {
 
     if (p1Wins >= this.targetScore || oppWins >= this.targetScore) {
       setTimeout(() => {
-        this.showVictoryScreen(p1Wins >= this.targetScore ? 'PLAYER 1' : winner);
+        this.showVictoryScreen(p1Wins >= this.targetScore ? this.p1Name : winnerName, p1Wins >= this.targetScore ? 1 : 2);
       }, 700);
       return;
     }
@@ -526,11 +539,12 @@ class PenFightGame {
     const rP2 = document.getElementById('roundScoreP2');
 
     if (modal && title && desc) {
+      const dispName = winnerName.toUpperCase();
       if (isSelfKnockout) {
-        title.textContent = 'SELF-KNOCKOUT! ' + winner + ' WINS!';
+        title.textContent = 'SELF-KNOCKOUT! ' + dispName + ' WINS!';
         desc.textContent = 'A pen slid off the desk boundary on its own!';
       } else {
-        title.textContent = 'KNOCKOUT! ' + winner + ' WINS!';
+        title.textContent = 'KNOCKOUT! ' + dispName + ' WINS!';
         desc.textContent = 'All opponent team pens were knocked completely off the desk!';
       }
 
@@ -551,14 +565,25 @@ class PenFightGame {
     this.initRound();
   }
 
-  showVictoryScreen(winner) {
+  showVictoryScreen(winnerName, winningTeam) {
     this.state = 'MATCH_OVER';
     this.hideAllModals();
     this.showScreen('victoryScreen');
 
+    const isLocalWinner = (this.mode === 'online_host' && winningTeam === 1) ||
+                          (this.mode === 'online_guest' && winningTeam === 2) ||
+                          (this.mode === 'vs_ai' && winningTeam === 1) ||
+                          (this.mode === 'pvp' || this.mode === 'practice');
+
+    if (isLocalWinner) {
+      this.sound.playVictory();
+    } else {
+      this.sound.playDefeat();
+    }
+
     const winnerTitle = document.getElementById('victoryWinnerTitle');
     if (winnerTitle) {
-      winnerTitle.textContent = winner + ' DOMINATES!';
+      winnerTitle.textContent = winnerName.toUpperCase() + ' DOMINATES!';
     }
 
     const totalShots = Math.max(1, this.matchStats.shotsTaken);
@@ -581,8 +606,8 @@ class PenFightGame {
     if (sKo) sKo.textContent = this.matchStats.knockouts;
     if (sTime) sTime.textContent = mins + ':' + secs;
 
-    const winnerPenId = winner.includes('PLAYER 1') ? this.p1PenId : this.p2PenId;
-    const winnerPal = PEN_COLOR_PALETTES.find(p => p.id === (winner.includes('PLAYER 1') ? this.p1PaletteId : this.p2PaletteId));
+    const winnerPenId = (winningTeam === 1) ? this.p1PenId : this.p2PenId;
+    const winnerPal = PEN_COLOR_PALETTES.find(p => p.id === (winningTeam === 1 ? this.p1PaletteId : this.p2PaletteId));
     this.renderTrophyPen(winnerPenId, winnerPal);
   }
 
@@ -627,12 +652,17 @@ class PenFightGame {
     if (p1Tag) p1Tag.textContent = (PEN_CONFIGS[this.p1PenId] || {}).name || 'Pen';
     if (p2Tag) p2Tag.textContent = (PEN_CONFIGS[this.p2PenId] || {}).name || 'Pen';
 
+    const p1Title = document.getElementById('p1TitleTag');
+    if (p1Title) {
+      p1Title.textContent = this.p1Name.toUpperCase() + ' ✏️';
+    }
+
     const p2Title = document.getElementById('p2TitleTag');
     if (p2Title) {
       if (this.mode === 'vs_ai') p2Title.textContent = 'AI SQUAD';
-      else if (this.mode === 'online_host') p2Title.textContent = 'PLAYER 2 (GUEST)';
-      else if (this.mode === 'online_guest') p2Title.textContent = 'YOU (PLAYER 2)';
-      else p2Title.textContent = 'PLAYER 2';
+      else if (this.mode === 'online_host') p2Title.textContent = this.p2Name.toUpperCase() + ' (GUEST)';
+      else if (this.mode === 'online_guest') p2Title.textContent = 'YOU (' + this.p2Name.toUpperCase() + ')';
+      else p2Title.textContent = this.p2Name.toUpperCase() + ' ✏️';
     }
 
     const dotWrap1 = document.getElementById('p1TeamDots');
@@ -671,6 +701,9 @@ class PenFightGame {
     const banner = document.getElementById('turnBannerText');
     if (!banner) return;
 
+    const p1Disp = this.p1Name.toUpperCase();
+    const p2Disp = (this.mode === 'vs_ai') ? 'AI SQUAD' : this.p2Name.toUpperCase();
+
     if (this.state === 'IN_MOTION') {
       banner.className = 'turn-banner in-motion';
       banner.innerHTML = 'PENS IN MOTION...';
@@ -679,9 +712,9 @@ class PenFightGame {
       const slotText = this.teamSize > 1 ? ' (PEN ' + (this.activeSlotT1 + 1) + ')' : '';
       const protText = this.roundTurnCount < 2 ? ' [🛡️ 1st Shot Shield Active]' : ' [⚔️ Knockout Active]';
       if (this.mode === 'online_guest') {
-        banner.innerHTML = 'PLAYER 1' + slotText + ' (OPPONENT) IS AIMING...' + protText;
+        banner.innerHTML = p1Disp + slotText + ' (OPPONENT) IS AIMING...' + protText;
       } else {
-        banner.innerHTML = (this.mode === 'online_host' ? 'YOUR TURN (PLAYER 1)' : 'PLAYER 1') + slotText + ' &mdash; Drag & Release to Strike!' + protText;
+        banner.innerHTML = p1Disp + slotText + ' &mdash; Drag & Release to Strike!' + protText;
       }
     } else if (this.currentTurnTeam === 2) {
       banner.className = 'turn-banner p2-turn';
@@ -690,9 +723,9 @@ class PenFightGame {
       if (this.mode === 'vs_ai') {
         banner.innerHTML = 'OPPONENT AI' + slotText + ' IS AIMING...' + protText;
       } else if (this.mode === 'online_host') {
-        banner.innerHTML = 'PLAYER 2' + slotText + ' (OPPONENT) IS AIMING...' + protText;
+        banner.innerHTML = p2Disp + slotText + ' (OPPONENT) IS AIMING...' + protText;
       } else {
-        banner.innerHTML = (this.mode === 'online_guest' ? 'YOUR TURN (PLAYER 2)' : 'PLAYER 2') + slotText + ' &mdash; Drag & Release to Strike!' + protText;
+        banner.innerHTML = p2Disp + slotText + ' &mdash; Drag & Release to Strike!' + protText;
       }
     }
   }
@@ -703,6 +736,10 @@ class PenFightGame {
     if (modal) {
       modal.classList.remove('hidden');
       modal.style.setProperty('display', 'flex', 'important');
+    }
+    const nickInput = document.getElementById('mpPlayerNameInput');
+    if (nickInput) {
+      nickInput.value = this.p1Name;
     }
     this.switchMultiplayerTab('host');
   }
@@ -748,6 +785,12 @@ class PenFightGame {
     if (codeEl) codeEl.textContent = 'CONNECTING...';
     if (statusText) statusText.textContent = 'Opening room channel...';
 
+    const nickInput = document.getElementById('mpPlayerNameInput');
+    if (nickInput && nickInput.value.trim()) {
+      this.p1Name = nickInput.value.trim().substring(0, 16);
+      localStorage.setItem('penfight_p1_name', this.p1Name);
+    }
+
     this.network.initHost(
       (roomCode) => {
         if (codeEl) codeEl.textContent = roomCode;
@@ -769,6 +812,12 @@ class PenFightGame {
     let clean = (roomCode || '').trim().toUpperCase();
     if (!clean.startsWith('PEN-')) {
       clean = 'PEN-' + clean.replace(/[^A-Z0-9]/g, '');
+    }
+
+    const nickInput = document.getElementById('mpPlayerNameInput');
+    if (nickInput && nickInput.value.trim()) {
+      this.p2Name = nickInput.value.trim().substring(0, 16);
+      localStorage.setItem('penfight_p2_name', this.p2Name);
     }
 
     if (statusBadge) {
@@ -822,6 +871,7 @@ class PenFightGame {
 
       if (msg.guestPenId) this.p2PenId = msg.guestPenId;
       if (msg.guestPaletteId) this.p2PaletteId = msg.guestPaletteId;
+      if (msg.guestName) this.p2Name = msg.guestName;
 
       this.sound.playVictory();
       this.matchStartingTeam = Math.random() < 0.5 ? 1 : 2;
@@ -830,6 +880,7 @@ class PenFightGame {
         type: 'START_MATCH',
         hostPenId: this.p1PenId,
         hostPaletteId: this.p1PaletteId,
+        hostName: this.p1Name,
         arenaId: this.selectedArenaId,
         matchFormat: this.matchFormat,
         teamSize: this.teamSize,
@@ -846,6 +897,8 @@ class PenFightGame {
 
       this.p1PenId = msg.hostPenId || this.p1PenId;
       this.p1PaletteId = msg.hostPaletteId || this.p1PaletteId;
+      if (msg.hostName) this.p1Name = msg.hostName;
+
       this.selectedArenaId = msg.arenaId || this.selectedArenaId;
       this.matchFormat = msg.matchFormat || 3;
       this.teamSize = msg.teamSize || 1;
@@ -912,7 +965,7 @@ class PenFightGame {
     }
 
     if (msg.type === 'ROUND_OVER') {
-      this.handleRoundEnd(msg.winner, msg.isSelf);
+      this.handleRoundEnd(msg.winnerName, msg.winningTeam, msg.isSelf);
       return;
     }
 
@@ -952,6 +1005,36 @@ class PenFightGame {
       const el = document.getElementById(id);
       if (el) el.addEventListener('click', fn);
     };
+
+    // Quick Click-to-Edit Player Names on HUD
+    const p1TitleTag = document.getElementById('p1TitleTag');
+    if (p1TitleTag) {
+      p1TitleTag.style.cursor = 'pointer';
+      p1TitleTag.title = 'Click to edit your name';
+      p1TitleTag.addEventListener('click', () => {
+        const val = prompt('Enter Player 1 Name:', this.p1Name);
+        if (val && val.trim()) {
+          this.p1Name = val.trim().substring(0, 16);
+          localStorage.setItem('penfight_p1_name', this.p1Name);
+          this.updateHUD();
+        }
+      });
+    }
+
+    const p2TitleTag = document.getElementById('p2TitleTag');
+    if (p2TitleTag) {
+      p2TitleTag.style.cursor = 'pointer';
+      p2TitleTag.title = 'Click to edit Player 2 name';
+      p2TitleTag.addEventListener('click', () => {
+        if (this.mode === 'vs_ai') return;
+        const val = prompt('Enter Player 2 Name:', this.p2Name);
+        if (val && val.trim()) {
+          this.p2Name = val.trim().substring(0, 16);
+          localStorage.setItem('penfight_p2_name', this.p2Name);
+          this.updateHUD();
+        }
+      });
+    }
 
     bindBtn('menuOnlineBtn', () => {
       this.sound.playClick();
@@ -1051,6 +1134,11 @@ class PenFightGame {
       this.sound.playClick();
       const modal = document.getElementById('settingsModal');
       if (modal) {
+        const p1In = document.getElementById('settingP1Name');
+        const p2In = document.getElementById('settingP2Name');
+        if (p1In) p1In.value = this.p1Name;
+        if (p2In) p2In.value = this.p2Name;
+
         modal.classList.remove('hidden');
         modal.style.setProperty('display', 'flex', 'important');
       }
@@ -1305,12 +1393,24 @@ class PenFightGame {
     const sfxEl = document.getElementById('settingSfxVol');
     const camEl = document.getElementById('settingCameraEffects');
     const teamEl = document.getElementById('settingTeamSize');
+    const p1In = document.getElementById('settingP1Name');
+    const p2In = document.getElementById('settingP2Name');
 
     if (diffEl) this.ai.setDifficulty(diffEl.value);
     if (formatEl) this.matchFormat = parseInt(formatEl.value) || 3;
     if (sfxEl) this.sound.setVolume(parseInt(sfxEl.value) / 100);
     if (camEl) this.cameraEffectsEnabled = camEl.checked;
     if (teamEl) this.teamSize = parseInt(teamEl.value) || 1;
+
+    if (p1In && p1In.value.trim()) {
+      this.p1Name = p1In.value.trim().substring(0, 16);
+      localStorage.setItem('penfight_p1_name', this.p1Name);
+    }
+    if (p2In && p2In.value.trim()) {
+      this.p2Name = p2In.value.trim().substring(0, 16);
+      localStorage.setItem('penfight_p2_name', this.p2Name);
+    }
+    this.updateHUD();
   }
 
   loop(timestamp) {

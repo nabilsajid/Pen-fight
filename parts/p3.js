@@ -1,4 +1,3 @@
-
 class PhysicsEngine {
   constructor(deskBounds, soundManager = null) {
     this.deskBounds = deskBounds;
@@ -156,6 +155,7 @@ class SoundEffects {
     this.volume = 0.8;
     this.initialized = false;
   }
+
   init() {
     if (this.initialized) return;
     try {
@@ -168,20 +168,24 @@ class SoundEffects {
       this.initialized = true;
     } catch (e) {}
   }
+
   resume() {
     if (!this.initialized) this.init();
     if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
   }
+
   setVolume(val) {
     this.volume = Math.max(0, Math.min(1, val));
     if (this.masterGain && this.ctx) {
       this.masterGain.gain.setValueAtTime(this.volume, this.ctx.currentTime);
     }
   }
+
   toggle() {
     this.enabled = !this.enabled;
     return this.enabled;
   }
+
   playClick() {
     if (!this.enabled || !this.ctx) return;
     this.resume();
@@ -198,6 +202,7 @@ class SoundEffects {
     osc.start(t);
     osc.stop(t + 0.05);
   }
+
   playStrike(intensity = 50) {
     if (!this.enabled || !this.ctx) return;
     this.resume();
@@ -224,6 +229,7 @@ class SoundEffects {
     osc.start(t);
     osc.stop(t + 0.11);
   }
+
   playPenCollision(penA, penB, intensity = 40) {
     if (!this.enabled || !this.ctx) return;
     this.resume();
@@ -246,6 +252,7 @@ class SoundEffects {
     osc1.start(t);
     osc1.stop(t + 0.08);
   }
+
   playPenFalling(pen) {
     if (!this.enabled || !this.ctx) return;
     this.resume();
@@ -262,26 +269,114 @@ class SoundEffects {
     osc.start(t);
     osc.stop(t + 0.6);
   }
+
   playVictory() {
     if (!this.enabled || !this.ctx) return;
     this.resume();
-    const notes = [261.63, 329.63, 392.0, 523.25, 659.25];
     const t = this.ctx.currentTime;
-    notes.forEach((freq, idx) => {
+
+    // Rich triumphant fanfare: C5 -> E5 -> G5 -> C6 Power Climax + High Shimmer Arpeggio
+    const fanfareNotes = [
+      { f: 523.25, time: 0.00, dur: 0.14, type: 'triangle' }, // C5
+      { f: 659.25, time: 0.12, dur: 0.14, type: 'triangle' }, // E5
+      { f: 783.99, time: 0.24, dur: 0.14, type: 'triangle' }, // G5
+      { f: 1046.50, time: 0.38, dur: 0.75, type: 'triangle' }, // C6 Climax
+      { f: 659.25, time: 0.38, dur: 0.75, type: 'sine' },     // E5 Harmony
+      { f: 783.99, time: 0.38, dur: 0.75, type: 'sine' }      // G5 Harmony
+    ];
+
+    fanfareNotes.forEach(n => {
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
-      const noteStart = t + idx * 0.12;
-      const noteDur = idx === notes.length - 1 ? 0.55 : 0.18;
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(freq, noteStart);
-      gain.gain.setValueAtTime(0.45 * this.volume, noteStart);
-      gain.gain.exponentialRampToValueAtTime(0.001, noteStart + noteDur);
+      const start = t + n.time;
+      osc.type = n.type;
+      osc.frequency.setValueAtTime(n.f, start);
+
+      gain.gain.setValueAtTime(0.42 * this.volume, start);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + n.dur);
+
       osc.connect(gain);
       gain.connect(this.masterGain);
-      osc.start(noteStart);
-      osc.stop(noteStart + noteDur + 0.02);
+      osc.start(start);
+      osc.stop(start + n.dur + 0.02);
+    });
+
+    // High celebration sparkles
+    const sparkles = [1318.51, 1567.98, 2093.0]; // E6, G6, C7
+    sparkles.forEach((freq, idx) => {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      const start = t + 0.45 + idx * 0.08;
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, start);
+
+      gain.gain.setValueAtTime(0.25 * this.volume, start);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.35);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(start);
+      osc.stop(start + 0.38);
     });
   }
+
+  playDefeat() {
+    if (!this.enabled || !this.ctx) return;
+    this.resume();
+    const t = this.ctx.currentTime;
+
+    // Sorrowful / Comical descending trombone slide: F4 -> E4 -> Eb4 -> D4 sliding down to D3
+    const sadNotes = [
+      { f: 349.23, time: 0.00, dur: 0.22 }, // F4
+      { f: 329.63, time: 0.24, dur: 0.22 }, // E4
+      { f: 311.13, time: 0.48, dur: 0.22 }  // Eb4
+    ];
+
+    sadNotes.forEach(n => {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      const start = t + n.time;
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(n.f, start);
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(650, start);
+
+      gain.gain.setValueAtTime(0.35 * this.volume, start);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + n.dur);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(start);
+      osc.stop(start + n.dur + 0.02);
+    });
+
+    // Final long sliding womp with slow vibrato
+    const finalStart = t + 0.72;
+    const finalOsc = this.ctx.createOscillator();
+    const finalGain = this.ctx.createGain();
+    const finalFilter = this.ctx.createBiquadFilter();
+
+    finalOsc.type = 'sawtooth';
+    finalOsc.frequency.setValueAtTime(293.66, finalStart); // D4
+    finalOsc.frequency.linearRampToValueAtTime(146.83, finalStart + 0.85); // slide to D3
+
+    finalFilter.type = 'lowpass';
+    finalFilter.frequency.setValueAtTime(550, finalStart);
+    finalFilter.frequency.linearRampToValueAtTime(280, finalStart + 0.85);
+
+    finalGain.gain.setValueAtTime(0.40 * this.volume, finalStart);
+    finalGain.gain.exponentialRampToValueAtTime(0.001, finalStart + 0.90);
+
+    finalOsc.connect(finalFilter);
+    finalFilter.connect(finalGain);
+    finalGain.connect(this.masterGain);
+    finalOsc.start(finalStart);
+    finalOsc.stop(finalStart + 0.95);
+  }
+
   playTurn() {
     if (!this.enabled || !this.ctx) return;
     this.resume();
