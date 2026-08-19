@@ -2,11 +2,10 @@ class NetworkManager {
   constructor(game) {
     this.game = game;
     this.client = null;
-    this.isHost = false;
+    this.role = null; // 'host' or 'guest'
     this.roomCode = null;
     this.isConnected = false;
-    this.topicIncoming = null;
-    this.topicOutgoing = null;
+    this.topic = null;
     this.currentBrokerIndex = 0;
     this.brokers = [
       'wss://broker.hivemq.com:8884/mqtt',
@@ -26,21 +25,19 @@ class NetworkManager {
 
   initHost(onRoomReady, onData, onError) {
     this.cleanup();
-    this.isHost = true;
+    this.role = 'host';
     const rawCode = this.generateRoomCode();
     this.roomCode = 'PEN-' + rawCode;
-
-    this.topicIncoming = 'penfight/v7/' + rawCode.toLowerCase() + '/g2h';
-    this.topicOutgoing = 'penfight/v7/' + rawCode.toLowerCase() + '/h2g';
+    this.topic = 'penfight/v9/' + rawCode.toLowerCase();
 
     this.connectBroker(() => {
-      this.client.subscribe(this.topicIncoming, { qos: 0 }, (err) => {
+      this.client.subscribe(this.topic, { qos: 0 }, (err) => {
         if (err) {
-          console.error('[Host] Subscribe error:', err);
-          if (onError) onError('Could not register room. Retrying...');
+          console.error('[Host] Subscription error:', err);
+          if (onError) onError('Could not register room. Please try again.');
           return;
         }
-        console.log('[Host] Room open on topic:', this.topicIncoming);
+        console.log('[Host] Room open on topic:', this.topic);
         if (onRoomReady) onRoomReady(this.roomCode);
       });
     }, onData, onError);
@@ -48,31 +45,29 @@ class NetworkManager {
 
   joinRoom(inputCode, onConnected, onData, onError) {
     this.cleanup();
-    this.isHost = false;
+    this.role = 'guest';
     let cleanCode = (inputCode || '').trim().toUpperCase().replace('PEN-', '').replace(/[^A-Z0-9]/g, '');
     if (!cleanCode || cleanCode.length < 3) {
       if (onError) onError('Please enter a valid 4-digit room code.');
       return;
     }
     this.roomCode = 'PEN-' + cleanCode;
-
-    this.topicIncoming = 'penfight/v7/' + cleanCode.toLowerCase() + '/h2g';
-    this.topicOutgoing = 'penfight/v7/' + cleanCode.toLowerCase() + '/g2h';
+    this.topic = 'penfight/v9/' + cleanCode.toLowerCase();
 
     this.connectBroker(() => {
-      this.client.subscribe(this.topicIncoming, { qos: 0 }, (err) => {
+      this.client.subscribe(this.topic, { qos: 0 }, (err) => {
         if (err) {
-          console.error('[Guest] Subscribe error:', err);
-          if (onError) onError('Could not connect to room. Retrying...');
+          console.error('[Guest] Subscription error:', err);
+          if (onError) onError('Could not connect to room.');
           return;
         }
-        console.log('[Guest] Subscribed to host topic:', this.topicIncoming);
+        console.log('[Guest] Subscribed to room topic:', this.topic);
         this.isConnected = true;
         if (onConnected) onConnected('guest');
 
-        // Announce presence to Host with repeating broadcast until Host responds
+        // Broadcast presence until match starts
         const announceTimer = setInterval(() => {
-          if (this.game.mode === 'online_guest') {
+          if (this.game.mode === 'online_guest' || !this.client || !this.client.connected) {
             clearInterval(announceTimer);
             return;
           }
@@ -81,10 +76,9 @@ class NetworkManager {
             guestPenId: this.game.p2PenId,
             guestPaletteId: this.game.p2PaletteId
           });
-        }, 600);
+        }, 500);
 
-        // Clear timer after 15s
-        setTimeout(() => clearInterval(announceTimer), 15000);
+        setTimeout(() => clearInterval(announceTimer), 20000);
       });
     }, onData, onError);
   }
@@ -92,13 +86,13 @@ class NetworkManager {
   connectBroker(onSubscribed, onData, onError) {
     const mqttLib = window.mqtt || (typeof mqtt !== 'undefined' ? mqtt : null);
     if (!mqttLib) {
-      if (onError) onError('Loading multiplayer engine, please tap again in a moment...');
+      if (onError) onError('Multiplayer library loading, please try again in a moment.');
       return;
     }
 
     try {
       const brokerUrl = this.brokers[this.currentBrokerIndex % this.brokers.length];
-      const clientId = 'pf7_' + (this.isHost ? 'h_' : 'g_') + Math.random().toString(16).substring(2, 9);
+      const clientId = 'pf9_' + this.role + '_' + Math.random().toString(16).substring(2, 9);
       console.log('[Network] Connecting to broker:', brokerUrl);
 
       this.client = mqttLib.connect(brokerUrl, {
@@ -118,8 +112,8 @@ class NetworkManager {
         try {
           const str = payload.toString();
           const data = JSON.parse(str);
-          if (data && onData) {
-            onData(data);
+          if (data && data.senderRole !== this.role) {
+            if (onData) onData(data);
           }
         } catch (e) {
           console.error('[Network] Parse error:', e);
@@ -128,19 +122,19 @@ class NetworkManager {
 
       this.client.on('error', (err) => {
         console.warn('[Network] Broker warning:', err);
-        // Non-fatal: try backup broker
         this.currentBrokerIndex++;
       });
     } catch (e) {
       console.error('[Network] Connect error:', e);
-      if (onError) onError('Connection error. Please check your internet connection.');
+      if (onError) onError('Connection error. Please check your network.');
     }
   }
 
   send(data) {
-    if (this.client && this.client.connected && this.topicOutgoing) {
+    if (this.client && this.client.connected && this.topic) {
       try {
-        this.client.publish(this.topicOutgoing, JSON.stringify(data), { qos: 0 });
+        const payload = Object.assign({}, data, { senderRole: this.role });
+        this.client.publish(this.topic, JSON.stringify(payload), { qos: 0 });
       } catch (err) {
         console.error('[Network] Send error:', err);
       }
@@ -150,7 +144,7 @@ class NetworkManager {
   cleanup() {
     if (this.client) {
       try {
-        if (this.topicIncoming) this.client.unsubscribe(this.topicIncoming);
+        if (this.topic) this.client.unsubscribe(this.topic);
         this.client.end(true);
       } catch (e) {}
       this.client = null;

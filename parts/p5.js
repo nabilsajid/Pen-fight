@@ -295,7 +295,7 @@ class PenFightGame {
     pen.applyImpulse(impulse, strikePoint);
     this.ui.addSparkParticles(strikePoint.x, strikePoint.y, 18, pen.owner === 'player1' ? '#00e5ff' : '#ff3d00');
 
-    // Broadcast resolution-independent shot packet to opponent if local
+    // Broadcast shot packet to opponent if local
     if (!isRemote && this.isOnlineMultiplayer()) {
       const desk = this.deskBounds;
       this.network.send({
@@ -346,6 +346,9 @@ class PenFightGame {
   checkPhysicsMotionEnd() {
     if (this.state !== 'IN_MOTION') return;
 
+    // Only host decides turn settlement in online multiplayer
+    if (this.mode === 'online_guest') return;
+
     for (const p of this.physics.pens) {
       const isSettled = p.isDead || (p.isFalling && p.fallProgress >= 0.95) || (!p.isFalling && p.isAtRest());
       if (!isSettled) return;
@@ -375,6 +378,9 @@ class PenFightGame {
       this.state = 'ROUND_OVER';
       if (this.pensT1[0]) this.sound.playPenFalling(this.pensT1[0]);
       this.showDoubleKnockoutToast();
+      if (this.mode === 'online_host') {
+        this.network.send({ type: 'DOUBLE_KNOCKOUT' });
+      }
       setTimeout(() => {
         this.hideDoubleKnockoutToast();
         this.initRound();
@@ -385,6 +391,9 @@ class PenFightGame {
     if (aliveT1 === 0) {
       const winner = (this.mode === 'vs_ai') ? 'AI BOT' : (this.mode === 'online_guest' ? 'YOU (PLAYER 2)' : 'PLAYER 2');
       const isSelf = (this.lastShotOwner === 'player1');
+      if (this.mode === 'online_host') {
+        this.network.send({ type: 'ROUND_OVER', winner: 'PLAYER 2', isSelf: isSelf });
+      }
       this.handleRoundEnd(winner, isSelf);
       return;
     }
@@ -392,6 +401,9 @@ class PenFightGame {
     if (aliveT2 === 0) {
       const winner = (this.mode === 'online_host' ? 'YOU (PLAYER 1)' : 'PLAYER 1');
       const isSelf = (this.lastShotOwner !== 'player1');
+      if (this.mode === 'online_host') {
+        this.network.send({ type: 'ROUND_OVER', winner: 'PLAYER 1', isSelf: isSelf });
+      }
       this.handleRoundEnd(winner, isSelf);
       return;
     }
@@ -764,6 +776,8 @@ class PenFightGame {
     if (!msg || !msg.type) return;
 
     if (msg.type === 'GUEST_JOINED') {
+      if (this.mode === 'online_host' && this.state !== 'MENU') return; // Already running
+
       if (msg.guestPenId) this.p2PenId = msg.guestPenId;
       if (msg.guestPaletteId) this.p2PaletteId = msg.guestPaletteId;
 
@@ -786,6 +800,8 @@ class PenFightGame {
     }
 
     if (msg.type === 'START_MATCH') {
+      if (this.mode === 'online_guest' && this.state !== 'MENU') return;
+
       this.p1PenId = msg.hostPenId || this.p1PenId;
       this.p1PaletteId = msg.hostPaletteId || this.p1PaletteId;
       this.selectedArenaId = msg.arenaId || this.selectedArenaId;
@@ -850,6 +866,22 @@ class PenFightGame {
       }
       this.sound.playTurn();
       this.updateHUD();
+      return;
+    }
+
+    if (msg.type === 'ROUND_OVER') {
+      this.handleRoundEnd(msg.winner, msg.isSelf);
+      return;
+    }
+
+    if (msg.type === 'DOUBLE_KNOCKOUT') {
+      this.state = 'ROUND_OVER';
+      if (this.pensT1[0]) this.sound.playPenFalling(this.pensT1[0]);
+      this.showDoubleKnockoutToast();
+      setTimeout(() => {
+        this.hideDoubleKnockoutToast();
+        this.initRound();
+      }, 1500);
       return;
     }
 
